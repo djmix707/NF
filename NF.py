@@ -630,7 +630,7 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
         config, _ = load_config()
     
     _, plan_label = derive_plan_info(info, is_subscribed)
-    status = "*Valid Premium Account*" if is_subscribed else "*Valid Free Account*"
+    status = "Valid Premium Account" if is_subscribed else "Valid Free Account"
     
     name = decode_netflix_value(info.get("accountOwnerName")) or "Unknown"
     email = decode_netflix_value(info.get("email")) or "Unknown"
@@ -642,118 +642,114 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
     payment = decode_netflix_value(info.get("paymentMethodType")) or "Unknown"
     card = decode_netflix_value(info.get("maskedCard")) or "N/A"
     phone = decode_netflix_value(info.get("phoneNumber")) or "N/A"
-    phone_verified = "*Yes*" if format_boolean_label(info.get("phoneVerified")) else "*No*"
+    phone_verified = "Yes" if format_boolean_label(info.get("phoneVerified")) else "No"
     quality = decode_netflix_value(info.get("videoQuality")) or "Unknown"
     streams = str(info.get("maxStreams") or "Unknown").rstrip("}")
-    hold = "*No*"
-    extra_member = "*Yes*" if is_extra_member_account(info) else "*No*"
-    email_verified = "*Yes*" if format_boolean_label(info.get("emailVerified")) else "*No*"
+    hold = "No"
+    extra_member = "Yes" if is_extra_member_account(info) else "No"
+    email_verified = "Yes" if format_boolean_label(info.get("emailVerified")) else "No"
     membership_status = decode_netflix_value(info.get("membershipStatus")) or "Unknown"
     profiles_count = len(info.get("profiles", "").split(", ")) if info.get("profiles") else 0
     profiles = decode_netflix_value(info.get("profiles")) or "None"
     
     lines = []
-    lines.append("*" + "=" * 65 + "*")
-    lines.append(f"*STATUS: {status}*")
-    lines.append("*" + "=" * 65 + "*")
+    lines.append("=" * 65)
+    lines.append(f"STATUS: {status}")
+    lines.append("=" * 65)
     lines.append("")
-    lines.append("*📋 ACCOUNT DETAILS*")
-    lines.append("*" + "-" * 40 + "*")
-    lines.append(f"*Name:* {name}")
-    lines.append(f"*Email:* {email}")
-    lines.append(f"*Country:* {country}")
-    lines.append(f"*Plan:* {plan}")
+    lines.append("ACCOUNT DETAILS")
+    lines.append("-" * 40)
+    lines.append(f"Name: {name}")
+    lines.append(f"Email: {email}")
+    lines.append(f"Country: {country}")
+    lines.append(f"Plan: {plan}")
     
     if is_subscribed:
         if price != "N/A":
-            lines.append(f"*Price:* {price}")
-        lines.append(f"*Member Since:* {member_since}")
-        lines.append(f"*Next Billing:* {next_billing}")
-        lines.append(f"*Payment:* {payment}")
+            lines.append(f"Price: {price}")
+        lines.append(f"Member Since: {member_since}")
+        lines.append(f"Next Billing: {next_billing}")
+        lines.append(f"Payment: {payment}")
         if payment.upper() == "CC" and card != "N/A":
-            lines.append(f"*Card:* {card}")
-        lines.append(f"*Phone:* {phone} ({phone_verified})")
-        lines.append(f"*Quality:* {quality}")
-        lines.append(f"*Streams:* {streams}")
-        lines.append(f"*Hold Status:* {hold}")
-        lines.append(f"*Extra Member:* {extra_member}")
-        lines.append(f"*Email Verified:* {email_verified}")
-        lines.append(f"*Membership Status:* {membership_status}")
+            lines.append(f"Card: {card}")
+        lines.append(f"Phone: {phone} ({phone_verified})")
+        lines.append(f"Quality: {quality}")
+        lines.append(f"Streams: {streams}")
+        lines.append(f"Hold Status: {hold}")
+        lines.append(f"Extra Member: {extra_member}")
+        lines.append(f"Email Verified: {email_verified}")
+        lines.append(f"Membership Status: {membership_status}")
     else:
-        lines.append(f"*Email Verified:* {email_verified}")
+        lines.append(f"Email Verified: {email_verified}")
     
     lines.append("")
-    lines.append("*👤 PROFILES*")
-    lines.append("*" + "-" * 40 + "*")
-    lines.append(f"*Connected Profiles:* {profiles_count}")
-    lines.append(f"*Profiles:* {profiles}")
+    lines.append("PROFILES")
+    lines.append("-" * 40)
+    lines.append(f"Connected Profiles: {profiles_count}")
+    lines.append(f"Profiles: {profiles}")
     
     lines.append("")
-    lines.append("*🍪 COOKIE*")
-    lines.append("*" + "-" * 40 + "*")
+    lines.append("COOKIE")
+    lines.append("-" * 40)
     cookie_clean = cookie_content.replace('\n', '').replace('\r', '')
     cookie_clean = re.sub(r'\s+', '', cookie_clean)
-    lines.append(f"`{cookie_clean}`")
+    lines.append(cookie_clean)
     
     lines.append("")
-    lines.append("*🎯 FILTERS*")
-    lines.append("*" + "-" * 40 + "*")
-    lines.append("*Account Filter:* Premium Only")
-    lines.append("*Mode:* Full Information")
+    lines.append("FILTERS")
+    lines.append("-" * 40)
+    lines.append("Account Filter: Premium Only")
+    lines.append("Mode: Full Information")
     
     if is_subscribed and nftoken_data and has_usable_nftoken(nftoken_data):
         lines.append("")
-        lines.append("*🔑 NFTOKEN LOGIN LINKS*")
-        lines.append("*" + "-" * 40 + "*")
+        lines.append("NFTOKEN LOGIN LINKS")
+        lines.append("-" * 40)
         mode = get_nftoken_mode(config)
         for label, link in build_nftoken_links(nftoken_data["token"], mode):
-            lines.append(f"*{label}:*")
-            lines.append(f"`{link}`")
+            lines.append(f"{label}:")
+            lines.append(link)
             lines.append("")
-        lines.append(f"*Valid Until:* {nftoken_data['expires_at_utc']}")
+        lines.append(f"Valid Until: {nftoken_data['expires_at_utc']}")
     
     lines.append("")
-    lines.append("*" + "=" * 65 + "*")
+    lines.append("=" * 65)
     
     return "\n".join(lines)
 
 
 # ==================== PROGRESS BAR FUNCTIONS ====================
 
-def create_progress_bar(percentage, width=20):
-    filled = int(width * percentage / 100)
-    empty = width - filled
-    bar = "█" * filled + "░" * empty
-    return f"{bar}"
-
 def format_progress_message(processed, total, valid_count, premium_count, free_count, invalid_count, speed, eta):
     percentage = (processed / total) * 100 if total > 0 else 0
-    progress_bar = create_progress_bar(percentage)
+    filled = int(20 * percentage / 100)
+    empty = 20 - filled
+    bar = "█" * filled + "░" * empty
     
     message = f"""
-*📦 Netflix Cookie Checker*
+📦 Netflix Cookie Checker
 
-*Processing Progress*
+Processing Progress
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-*Total Cookies:* {total}
-*Mode:* Fullinfo
-*Filter:* Premium accounts only
+Total Cookies: {total}
+Mode: Fullinfo
+Filter: Premium accounts only
 
-*📊 Current Status:*
+📊 Current Status:
 
-*{percentage:.1f}%* {progress_bar}
+{percentage:.1f}% {bar}
 
-*📁 Processing:* {processed}/{total}
-*✅ Valid:* {valid_count}
-*💰 Premium:* {premium_count}
-*🆓 Free:* {free_count}
-*❌ Invalid:* {invalid_count}
+📁 Processing: {processed}/{total}
+✅ Valid: {valid_count}
+💰 Premium: {premium_count}
+🆓 Free: {free_count}
+❌ Invalid: {invalid_count}
 
-*⚡ Speed:* {speed:.1f} acc/s
-*⏱️ ETA:* {eta:.1f}s remaining
+⚡ Speed: {speed:.1f} acc/s
+⏱️ ETA: {eta:.1f}s remaining
 
-*⚠️ Use /cancel to stop this task*
+⚠️ Use /cancel to stop this task
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
     return message
@@ -766,23 +762,23 @@ async def bot_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     first_name = user.first_name if user.first_name else "User"
     
     await update.message.reply_text(f"""
-*🎬 Netflix Cookie Checker Bot v{APP_VERSION}*
+🎬 Netflix Cookie Checker Bot v{APP_VERSION}
 
-*✨ Welcome {first_name}! ✨*
+✨ Welcome {first_name}! ✨
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-*📌 WHAT I DO:*
+📌 WHAT I DO:
    ✅ Verify Netflix cookies
    ✅ Extract premium account details
 
-*⚙️ HOW TO USE:*
+⚙️ HOW TO USE:
    1️⃣ Export cookies (.txt or .json)
    2️⃣ Send files directly (single or ZIP)
    3️⃣ Watch progress bar
    4️⃣ Receive PREMIUM_ACCOUNTS.txt
 
-*🕹️ COMMANDS:*
+🕹️ COMMANDS:
    /start      → Show menu
    /help       → Instructions
    /stats      → Statistics
@@ -792,66 +788,66 @@ async def bot_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-*🔽 USE THE MENU BUTTON BELOW FOR COMMANDS*
-""", parse_mode="Markdown")
+🔽 USE THE MENU BUTTON BELOW FOR COMMANDS
+""")
 
 async def bot_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("""
-*📖 HELP & INSTRUCTIONS*
+📖 HELP & INSTRUCTIONS
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-*STEP 1: Export Cookies*
+STEP 1: Export Cookies
    - EditThisCookie
    - Cookie-Editor
    - Get cookies.txt
 
-*STEP 2: Send Files*
+STEP 2: Send Files
    - Send single .txt or .json
    - OR send ZIP with multiple files
 
-*STEP 3: Get Results*
+STEP 3: Get Results
    - PREMIUM_ACCOUNTS.txt file
    - Full account details
    - NFToken login links
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-*🔽 USE THE MENU BUTTON FOR COMMANDS*
-""", parse_mode="Markdown")
+🔽 USE THE MENU BUTTON FOR COMMANDS
+""")
 
 async def bot_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"""
-*📊 BOT STATISTICS*
+📊 BOT STATISTICS
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-*Total files processed:* {stats['total']}
-*✅ Valid Premium accounts:* {stats['valid']}
-*🆓 Free accounts:* {stats['free']}
-*❌ Failed/Invalid:* {stats['failed']}
-*🔄 Currently processing:* {stats['processing']}
+Total files processed: {stats['total']}
+✅ Valid Premium accounts: {stats['valid']}
+🆓 Free accounts: {stats['free']}
+❌ Failed/Invalid: {stats['failed']}
+🔄 Currently processing: {stats['processing']}
 
-*🤖 Bot is running normally*
+🤖 Bot is running normally
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-""", parse_mode="Markdown")
+""")
 
 async def bot_tokenonly(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['mode'] = 'tokenonly'
-    await update.message.reply_text("*🔑 Token Only Mode - ACTIVATED*", parse_mode="Markdown")
+    await update.message.reply_text("🔑 Token Only Mode - ACTIVATED")
 
 async def bot_fullinfo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['mode'] = 'fullinfo'
-    await update.message.reply_text("*📋 Full Info Mode - ACTIVATED*", parse_mode="Markdown")
+    await update.message.reply_text("📋 Full Info Mode - ACTIVATED")
 
 async def bot_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     if uid in user_tasks and user_tasks[uid].get('active'):
         user_tasks[uid]['cancel'] = True
-        await update.message.reply_text("*⏹️ Cancellation requested*", parse_mode="Markdown")
+        await update.message.reply_text("⏹️ Cancellation requested")
     else:
-        await update.message.reply_text("*ℹ️ No active task*", parse_mode="Markdown")
+        await update.message.reply_text("ℹ️ No active task")
 
 async def handle_single_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
@@ -860,11 +856,11 @@ async def handle_single_file(update: Update, context: ContextTypes.DEFAULT_TYPE)
     fname = doc.file_name
     
     if doc.file_size > 5 * 1024 * 1024:
-        await update.message.reply_text("*❌ File too large! Max 5MB. Use ZIP for larger collections.*", parse_mode="Markdown")
+        await update.message.reply_text("❌ File too large! Max 5MB. Use ZIP for larger collections.")
         user_tasks[uid]['active'] = False
         return
     
-    msg = await update.message.reply_text(f"*📥 Processing:* {fname}\n\n*Please wait...*", parse_mode="Markdown")
+    msg = await update.message.reply_text(f"📥 Processing: {fname}\n\nPlease wait...")
     file = await doc.get_file()
     data = BytesIO()
     await file.download_to_memory(data)
@@ -873,19 +869,19 @@ async def handle_single_file(update: Update, context: ContextTypes.DEFAULT_TYPE)
     bundles = extract_netflix_cookie_bundles(content)
     
     if not bundles:
-        await msg.edit_text("*❌ No valid cookies found*", parse_mode="Markdown")
+        await msg.edit_text("❌ No valid cookies found")
         stats['failed'] += 1
         user_tasks[uid]['active'] = False
         return
     
     cookies = bundles[0].get("cookies", {})
     if not has_required_netflix_cookies(cookies):
-        await msg.edit_text("*❌ Missing NetflixId cookie*", parse_mode="Markdown")
+        await msg.edit_text("❌ Missing NetflixId cookie")
         stats['failed'] += 1
         user_tasks[uid]['active'] = False
         return
     
-    await msg.edit_text("*🔄 Connecting to Netflix...*", parse_mode="Markdown")
+    await msg.edit_text("🔄 Connecting to Netflix...")
     session = requests.Session()
     session.cookies.update(cookies)
     resp, code, info = get_account_page(session, None, 15)
@@ -900,7 +896,7 @@ async def handle_single_file(update: Update, context: ContextTypes.DEFAULT_TYPE)
         mode = context.user_data.get('mode', 'fullinfo')
         if mode == 'tokenonly':
             email = info.get("email", "Unknown")
-            res = f"*Account:* {email}\n\n*NFToken Login Links:*\n---\n*PC Login:* `https://netflix.com/?nftoken={nftoken['token']}`\n*Phone Login:* `https://netflix.com/unsupported?nftoken={nftoken['token']}`"
+            res = f"Account: {email}\n\nNFToken Login Links:\n---\nPC Login: https://netflix.com/?nftoken={nftoken['token']}\nPhone Login: https://netflix.com/unsupported?nftoken={nftoken['token']}"
         else:
             res = format_result_beautiful(info, is_sub, bundles[0].get("netscape_text", ""), fname, nftoken, config)
         
@@ -913,7 +909,7 @@ async def handle_single_file(update: Update, context: ContextTypes.DEFAULT_TYPE)
         stats['valid'] += 1 if is_sub else 0
         stats['free'] += 0 if is_sub else 1
     else:
-        await msg.edit_text(f"*❌ Failed: HTTP {code}*", parse_mode="Markdown")
+        await msg.edit_text(f"❌ Failed: HTTP {code}")
         stats['failed'] += 1
     
     stats['total'] += 1
@@ -928,11 +924,11 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     start = time.time()
     
     if doc.file_size > 100 * 1024 * 1024:
-        await update.message.reply_text("*❌ File too large! Max 100MB*", parse_mode="Markdown")
+        await update.message.reply_text("❌ File too large! Max 100MB")
         user_tasks[uid]['active'] = False
         return
     
-    msg = await update.message.reply_text(f"*📦 Processing ZIP:* {fname}\n\n*Please wait...*", parse_mode="Markdown")
+    msg = await update.message.reply_text(f"📦 Processing ZIP: {fname}\n\nPlease wait...")
     file = await doc.get_file()
     zip_data = BytesIO()
     await file.download_to_memory(zip_data)
@@ -948,7 +944,7 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             files = [f for f in zf.namelist() if f.endswith(('.txt', '.json'))]
             total_files = len(files)
             if not files:
-                await msg.edit_text("*❌ No cookie files found in ZIP*", parse_mode="Markdown")
+                await msg.edit_text("❌ No cookie files found in ZIP")
                 user_tasks[uid]['active'] = False
                 return
             
@@ -957,7 +953,7 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             for idx, cf in enumerate(files):
                 if user_tasks[uid].get('cancel'):
-                    await msg.edit_text("*⏹️ Task cancelled*", parse_mode="Markdown")
+                    await msg.edit_text("⏹️ Task cancelled")
                     break
                 
                 try:
@@ -965,7 +961,7 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     bundles = extract_netflix_cookie_bundles(content)
                     
                     # Calculate progress
-                    premium_count = len([r for r in premium_accounts if r.startswith(("*", "STATUS:"))])
+                    premium_count = len([r for r in premium_accounts if r.startswith(("=", "STATUS:"))])
                     elapsed = time.time() - start
                     speed = processed / elapsed if elapsed > 0 else 0
                     remaining = total_files - processed
@@ -977,7 +973,7 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         stats['valid'], premium_count, free_count, 
                         invalid_count, speed, eta
                     )
-                    await msg.edit_text(progress_msg, parse_mode="Markdown")
+                    await msg.edit_text(progress_msg)
                     
                     if bundles:
                         cookies = bundles[0].get("cookies", {})
@@ -993,7 +989,7 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                         nftoken, _ = create_nftoken(cookies, 1)
                                     if mode == 'tokenonly':
                                         email = info.get("email", "Unknown")
-                                        res = f"*Account:* {email}\n\n*NFToken Login Links:*\n---\n*PC Login:* `https://netflix.com/?nftoken={nftoken['token']}`\n*Phone Login:* `https://netflix.com/unsupported?nftoken={nftoken['token']}`"
+                                        res = f"Account: {email}\n\nNFToken Login Links:\n---\nPC Login: https://netflix.com/?nftoken={nftoken['token']}\nPhone Login: https://netflix.com/unsupported?nftoken={nftoken['token']}"
                                     else:
                                         res = format_result_beautiful(info, is_sub, bundles[0].get("netscape_text", ""), cf, nftoken, config)
                                     premium_accounts.append(res)
@@ -1022,27 +1018,27 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if not user_tasks[uid].get('cancel'):
             elapsed = time.time() - start
-            pc = len([r for r in premium_accounts if r.startswith(("*", "STATUS:", "Account:"))])
+            pc = len([r for r in premium_accounts if r.startswith(("=", "STATUS:", "Account:"))])
             spd = total_files / elapsed if elapsed > 0 else 0
             
             final = f"""
-*✅ Processing Complete*
+✅ Processing Complete
 
-*Final Statistics:*
+Final Statistics:
 ----------------------------------------------------
-*Total Files:* {total_files}
+Total Files: {total_files}
 
-*Valid Accounts:* {pc}
-*Premium Accounts:* {pc}
-*Free Accounts:* {free_count}
-*Invalid Accounts:* {invalid_count}
+Valid Accounts: {pc}
+Premium Accounts: {pc}
+Free Accounts: {free_count}
+Invalid Accounts: {invalid_count}
 
-*Time Taken:* {elapsed:.2f} seconds
-*Speed:* {spd:.2f} accounts/second
+Time Taken: {elapsed:.2f} seconds
+Speed: {spd:.2f} accounts/second
 ----------------------------------------------------
 """
             await msg.delete()
-            await update.message.reply_text(final, parse_mode="Markdown")
+            await update.message.reply_text(final)
             if premium_accounts:
                 all_res = "".join(premium_accounts)
                 buf = BytesIO()
@@ -1050,9 +1046,9 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 buf.seek(0)
                 await update.message.reply_document(document=buf, filename="PREMIUM_ACCOUNTS.txt", caption=f"📄 {pc} Valid Premium Accounts Found")
             else:
-                await update.message.reply_text("*⚠️ No premium accounts found*", parse_mode="Markdown")
+                await update.message.reply_text("⚠️ No premium accounts found")
     except Exception as e:
-        await msg.edit_text(f"*❌ Error:* {str(e)[:200]}", parse_mode="Markdown")
+        await msg.edit_text(f"❌ Error: {str(e)[:200]}")
     finally:
         user_tasks[uid]['active'] = False
 
@@ -1063,7 +1059,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif fname.endswith('.txt') or fname.endswith('.json'):
         await handle_single_file(update, context)
     else:
-        await update.message.reply_text("*❌ Send .txt, .json, or .zip files*", parse_mode="Markdown")
+        await update.message.reply_text("❌ Send .txt, .json, or .zip files")
 
 async def set_commands(app):
     await app.bot.set_my_commands([
