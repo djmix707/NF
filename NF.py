@@ -727,23 +727,23 @@ def format_progress_message(processed, total, valid_count, premium_count, free_c
     bar = "█" * filled + "░" * empty
     
     message = f"""
-Processing Progress
+📦 Processing Progress
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Total Cookies: {total}
 Mode: Fullinfo
 Filter: Premium accounts only
 
-Current Status:
+📊 Current Status:
 {percentage:.1f}% {bar}
 
-- Processing: {processed}/{total}
-- Valid: {valid_count}
-- Premium: {premium_count}
-- Free: {free_count}
-- Invalid: {invalid_count}
+📁 Processing: {processed}/{total}
+✅ Valid: {valid_count}
+💰 Premium: {premium_count}
+🆓 Free: {free_count}
+❌ Invalid: {invalid_count}
 
-Speed: {speed:.1f} acc/s
-ETA: {eta:.1f}s remaining
+⚡ Speed: {speed:.1f} acc/s
+⏱️ ETA: {eta:.1f}s remaining
 
 ⚠️ Use /cancel to stop this task
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -843,9 +843,9 @@ async def bot_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     if uid in user_tasks and user_tasks[uid].get('active'):
         user_tasks[uid]['cancel'] = True
-        await update.message.reply_text("⏹️ Cancellation requested")
+        await update.message.reply_text("⏹️ Cancellation requested - Task will stop after current file")
     else:
-        await update.message.reply_text("ℹ️ No active task")
+        await update.message.reply_text("ℹ️ No active task to cancel")
 
 async def handle_single_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
@@ -950,8 +950,9 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             mode = context.user_data.get('mode', 'fullinfo')
             
             for idx, cf in enumerate(files):
-                if user_tasks[uid].get('cancel'):
-                    await msg.edit_text("⏹️ Task cancelled")
+                # Check for cancellation before each file
+                if user_tasks[uid].get('cancel', False):
+                    await msg.edit_text("⏹️ Task cancelled by user")
                     break
                 
                 try:
@@ -959,7 +960,7 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     bundles = extract_netflix_cookie_bundles(content)
                     
                     # Calculate progress
-                    premium_count = len([r for r in premium_accounts if r.startswith(("=", "STATUS:"))])
+                    premium_count = len([r for r in premium_accounts if r.startswith(("=", "STATUS:", "Account:"))])
                     elapsed = time.time() - start
                     speed = processed / elapsed if elapsed > 0 else 0
                     remaining = total_files - processed
@@ -1014,7 +1015,8 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     processed += 1
                     print(f"Error: {e}")
         
-        if not user_tasks[uid].get('cancel'):
+        # Check if cancelled before sending final results
+        if not user_tasks[uid].get('cancel', False):
             elapsed = time.time() - start
             pc = len([r for r in premium_accounts if r.startswith(("=", "STATUS:", "Account:"))])
             spd = total_files / elapsed if elapsed > 0 else 0
@@ -1045,6 +1047,9 @@ Speed: {spd:.2f} accounts/second
                 await update.message.reply_document(document=buf, filename="PREMIUM_ACCOUNTS.txt", caption=f"📄 {pc} Valid Premium Accounts Found")
             else:
                 await update.message.reply_text("⚠️ No premium accounts found")
+        else:
+            await msg.edit_text("⏹️ Task was cancelled")
+            
     except Exception as e:
         await msg.edit_text(f"❌ Error: {str(e)[:200]}")
     finally:
