@@ -1,1 +1,1 @@
-worker: python NF.py
+worker: python main.py
