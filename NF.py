@@ -759,8 +759,6 @@ async def bot_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 ✨ Welcome {first_name}! ✨
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
 📌 WHAT I DO:
    ✅ Verify Netflix cookies
    ✅ Extract premium account details
@@ -779,16 +777,12 @@ async def bot_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
    /fullinfo   → Full details mode
    /cancel     → Stop current task
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
 🔽 USE THE MENU BUTTON BELOW FOR COMMANDS
 """)
 
 async def bot_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("""
 📖 HELP & INSTRUCTIONS
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 STEP 1: Export Cookies
    - EditThisCookie
@@ -804,16 +798,12 @@ STEP 3: Get Results
    - Full account details
    - NFToken login links
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
 🔽 USE THE MENU BUTTON FOR COMMANDS
 """)
 
 async def bot_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"""
 📊 BOT STATISTICS
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Total files processed: {stats['total']}
 ✅ Valid Premium accounts: {stats['valid']}
@@ -822,8 +812,6 @@ Total files processed: {stats['total']}
 🔄 Currently processing: {stats['processing']}
 
 🤖 Bot is running normally
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """)
 
 async def bot_tokenonly(update: Update, context: ContextTypes.DEFAULT_TYPE):
