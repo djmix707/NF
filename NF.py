@@ -114,7 +114,7 @@ performance:
   nftoken_for_free: false
 """
 
-APP_VERSION = "4.5.0-BOT"
+APP_VERSION = "4.5.0"
 
 # Folders
 cookies_folder = "cookies"
@@ -690,22 +690,6 @@ def get_nftoken_mode(config):
         return "mobile"
     return "both"
 
-def get_add_emojis_mode(config):
-    raw_value = (config or {}).get("add_emojis", "webhook")
-    if isinstance(raw_value, bool):
-        return "both" if raw_value else "false"
-    raw_mode = str(raw_value).strip().lower()
-    if raw_mode in {"false", "off"}:
-        return "false"
-    return "webhook"
-
-def should_add_emojis(config, target):
-    mode = get_add_emojis_mode(config)
-    normalized_target = str(target or "").strip().lower()
-    if normalized_target == "txt":
-        return mode in {"txt", "both"}
-    return mode in {"webhook", "both"}
-
 def has_usable_nftoken(nftoken_data):
     if not isinstance(nftoken_data, dict):
         return False
@@ -779,23 +763,6 @@ def load_proxies():
                     proxies.append({"http": line, "https": line})
     return proxies
 
-# ==================== WRAPPER FUNCTIONS ====================
-
-def wrap_with_frame(text):
-    lines = text.split('\n')
-    max_len = max(len(line) for line in lines if line.strip()) if lines else 50
-    max_len = min(max_len, 60)
-    border = "=" * (max_len + 4)
-    wrapped_lines = [border]
-    for line in lines:
-        if line.strip():
-            padding = max_len - len(line)
-            wrapped_lines.append(f"  {line}{' ' * padding}  ")
-        else:
-            wrapped_lines.append(f"  {' ' * max_len}  ")
-    wrapped_lines.append(border)
-    return '\n'.join(wrapped_lines)
-
 # ==================== BEAUTIFUL RESULT FORMATTING ====================
 
 def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename, nftoken_data=None, config=None):
@@ -838,63 +805,74 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
     profiles = decode_netflix_value(info.get("profilesDisplay")) or decode_netflix_value(info.get("profiles")) or "None"
     
     lines = []
-    lines.append(f"Status: {status}")
+    lines.append("=" * 60)
+    lines.append(f"STATUS: {status}")
+    lines.append("=" * 60)
     lines.append("")
-    lines.append("Account Details:")
-    lines.append(f"- Name: {name}")
-    lines.append(f"- Email: {email}")
-    lines.append(f"- Country: {country}")
-    lines.append(f"- Plan: {plan}")
+    lines.append("📋 ACCOUNT DETAILS")
+    lines.append("-" * 40)
+    lines.append(f"├─ Name: {name}")
+    lines.append(f"├─ Email: {email}")
+    lines.append(f"├─ Country: {country}")
+    lines.append(f"├─ Plan: {plan}")
     
     if is_subscribed:
         if price and price != "N/A":
-            lines.append(f"- Price: {price}")
-        lines.append(f"- Member Since: {member_since}")
-        lines.append(f"- Next Billing: {next_billing}")
-        lines.append(f"- Payment: {payment}")
+            lines.append(f"├─ Price: {price}")
+        lines.append(f"├─ Member Since: {member_since}")
+        lines.append(f"├─ Next Billing: {next_billing}")
+        lines.append(f"├─ Payment: {payment}")
         if payment.upper() == "CC" and card != "N/A":
-            lines.append(f"- Card: {card}")
-        lines.append(f"- Phone: {phone} ({phone_verified})")
-        lines.append(f"- Quality: {quality}")
-        lines.append(f"- Streams: {streams}")
-        lines.append(f"- Hold Status: {hold}")
-        lines.append(f"- Extra Member: {extra_member}")
+            lines.append(f"├─ Card: {card}")
+        lines.append(f"├─ Phone: {phone} ({phone_verified})")
+        lines.append(f"├─ Quality: {quality}")
+        lines.append(f"├─ Streams: {streams}")
+        lines.append(f"├─ Hold Status: {hold}")
+        lines.append(f"├─ Extra Member: {extra_member}")
         if extra_member == "Yes":
-            lines.append(f"- Extra Member Slot: Unknown")
-        lines.append(f"- Email Verified: {email_verified}")
-        lines.append(f"- Membership Status: {membership_status}")
+            lines.append(f"├─ Extra Member Slot: Unknown")
+        lines.append(f"├─ Email Verified: {email_verified}")
+        lines.append(f"└─ Membership Status: {membership_status}")
     else:
-        lines.append(f"- Email Verified: {email_verified}")
+        lines.append(f"└─ Email Verified: {email_verified}")
     
-    lines.append(f"- Connected Profiles: {profiles_count}")
-    lines.append(f"- Profiles: {profiles}")
     lines.append("")
-    lines.append("Cookie:")
+    lines.append("👤 PROFILES")
+    lines.append("-" * 40)
+    lines.append(f"├─ Connected Profiles: {profiles_count}")
+    lines.append(f"└─ Profiles: {profiles}")
+    
+    lines.append("")
+    lines.append("🍪 COOKIE")
+    lines.append("-" * 40)
     cookie_single_line = cookie_content.replace('\n', '')
     cookie_single_line = re.sub(r'\s+', '', cookie_single_line)
     lines.append(cookie_single_line)
+    
     lines.append("")
-    lines.append("Account Filter: Premium Only")
-    lines.append("Mode: Full Information")
+    lines.append("🎯 FILTERS")
+    lines.append("-" * 40)
+    lines.append("├─ Account Filter: Premium Only")
+    lines.append("└─ Mode: Full Information")
     
     if is_subscribed and nftoken_data and has_usable_nftoken(nftoken_data):
         lines.append("")
-        lines.append("NFToken Login Links:")
-        lines.append("")
-        lines.append("---")
-        lines.append("")
+        lines.append("🔑 NFTOKEN LOGIN LINKS")
+        lines.append("-" * 40)
         
         nftoken_mode = get_nftoken_mode(config)
         links = build_nftoken_links(nftoken_data.get("token"), nftoken_mode)
         
         for label, link in links:
-            lines.append(f"{label}:")
-            lines.append(link)
-            lines.append("")
+            lines.append(f"├─ {label}:")
+            lines.append(f"│   {link}")
+            lines.append("├─" + "-" * 37)
         
         if nftoken_data.get("expires_at_utc"):
-            lines.append("Valid Until (UTC):")
-            lines.append(nftoken_data['expires_at_utc'])
+            lines.append(f"└─ Valid Until: {nftoken_data['expires_at_utc']}")
+    
+    lines.append("")
+    lines.append("=" * 60)
     
     return "\n".join(lines)
 
@@ -913,10 +891,11 @@ async def bot_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_text = f"""
 ===================================================
               🎬  N E T F L I X  🎬
-           COOKIE CHECKER BOT  v{APP_VERSION}
-                     By Eyad
+              COOKIE CHECKER BOT
+                     v{APP_VERSION}
+                       By Eyad
 
-           ✨  Welcome {first_name}!  ✨
+            ✨  Welcome {first_name}!  ✨
 ===================================================
 
   📌 WHAT I DO:
@@ -1053,10 +1032,9 @@ async def handle_single_file(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 txt_buffer.write(result.encode('utf-8'))
                 txt_buffer.seek(0)
                 
-                account_type = "Premium" if is_subscribed else "Free"
                 await update.message.reply_document(
                     document=txt_buffer,
-                    filename=f"{account_type}_{int(time.time())}.txt",
+                    filename=f"result_{int(time.time())}.txt",
                     caption="✅ Account Check Result"
                 )
                 stats['valid'] += 1 if is_subscribed else 0
@@ -1140,8 +1118,13 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                     if nftoken_mode != "false":
                                         nftoken_data, _ = create_nftoken(cookies, 1)
                                     
-                                    formatted_result = format_result_beautiful(info, is_subscribed, content, cookie_filename, nftoken_data, config)
-                                    premium_accounts.append(formatted_result)
+                                    if mode == 'tokenonly':
+                                        email = decode_netflix_value(info.get("email")) or "Unknown"
+                                        result = f"Account: {email}\n\nNFToken Login Links:\n---\nPC Login: https://netflix.com/?nftoken={nftoken_data['token']}\nPhone Login: https://netflix.com/unsupported?nftoken={nftoken_data['token']}"
+                                        premium_accounts.append(result)
+                                    else:
+                                        formatted_result = format_result_beautiful(info, is_subscribed, content, cookie_filename, nftoken_data, config)
+                                        premium_accounts.append(formatted_result)
                                     premium_accounts.append("\n" + "="*60 + "\n")
                                     stats['valid'] += 1
                                 else:
@@ -1170,7 +1153,7 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if not user_tasks[user_id].get('cancel'):
             time_taken = time.time() - start_time
-            premium_count = len([r for r in premium_accounts if r.startswith("Status:")])
+            premium_count = len([r for r in premium_accounts if r.startswith(("="*60, "Status:", "Account:"))])
             speed = total_files / time_taken if time_taken > 0 else 0
 
             final_stats_text = f"""
