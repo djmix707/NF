@@ -755,8 +755,8 @@ async def bot_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     first_name = user.first_name if user.first_name else "User"
     
     await update.message.reply_text(f"""
-🎬 Netflix Cookie Checker Bot v{APP_VERSION}
-By Eyad
+🎬 Netflix Cookie Checker Bot
+⚡ Developer: Eyad 🚀
 
 ✨ Welcome {first_name}! ✨
 
@@ -934,7 +934,6 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             mode = context.user_data.get('mode', 'fullinfo')
             
             for idx, cf in enumerate(files):
-                # Check for cancellation before each file
                 if user_tasks[uid].get('cancel', False):
                     await msg.edit_text("⏹️ Task cancelled by user")
                     break
@@ -943,14 +942,12 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     content = zf.read(cf).decode('utf-8', errors='ignore')
                     bundles = extract_netflix_cookie_bundles(content)
                     
-                    # Calculate progress
                     premium_count = len([r for r in premium_accounts if r.startswith(("=", "STATUS:", "Account:"))])
                     elapsed = time.time() - start
                     speed = processed / elapsed if elapsed > 0 else 0
                     remaining = total_files - processed
                     eta = remaining / speed if speed > 0 else 0
                     
-                    # Update progress message (no frames)
                     progress_msg = format_progress_message(
                         processed, total_files, 
                         stats['valid'], premium_count, free_count, 
@@ -999,7 +996,6 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     processed += 1
                     print(f"Error: {e}")
         
-        # Check if cancelled before sending final results
         if not user_tasks[uid].get('cancel', False):
             elapsed = time.time() - start
             pc = len([r for r in premium_accounts if r.startswith(("=", "STATUS:", "Account:"))])
