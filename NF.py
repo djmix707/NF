@@ -726,9 +726,8 @@ def format_progress_message(processed, total, valid_count, premium_count, free_c
     empty = 20 - filled
     bar = "█" * filled + "░" * empty
     
-    message = f"""
-📦 Processing Progress
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    message = f"""📦 Processing Progress
+
 Total Cookies: {total}
 Mode: Fullinfo
 Filter: Premium accounts only
@@ -745,9 +744,7 @@ Filter: Premium accounts only
 ⚡ Speed: {speed:.1f} acc/s
 ⏱️ ETA: {eta:.1f}s remaining
 
-⚠️ Use /cancel to stop this task
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-"""
+⚠️ Use /cancel to stop this task"""
     return message
 
 
@@ -758,77 +755,75 @@ async def bot_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     first_name = user.first_name if user.first_name else "User"
     
     await update.message.reply_text(f"""
-===================================================
-              🎬  N E T F L I X  🎬
-           COOKIE CHECKER BOT  v{APP_VERSION}
-                     By Eyad
+🎬 Netflix Cookie Checker Bot v{APP_VERSION}
 
-           ✨  Welcome {first_name}!  ✨
-===================================================
+✨ Welcome {first_name}! ✨
 
-  📌 WHAT I DO:
-     ✅ Verify Netflix cookies
-     ✅ Extract premium account details
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  ⚙️ HOW TO USE:
-     1️⃣ Export cookies (.txt or .json)
-     2️⃣ Send files directly (single or ZIP)
-     3️⃣ Watch progress bar
-     4️⃣ Receive PREMIUM_ACCOUNTS.txt
+📌 WHAT I DO:
+   ✅ Verify Netflix cookies
+   ✅ Extract premium account details
 
-  🕹️ COMMANDS:
-     /start      → Show menu
-     /help       → Instructions
-     /stats      → Statistics
-     /tokenonly  → Token-only mode
-     /fullinfo   → Full details mode
-     /cancel     → Stop current task
+⚙️ HOW TO USE:
+   1️⃣ Export cookies (.txt or .json)
+   2️⃣ Send files directly (single or ZIP)
+   3️⃣ Watch progress bar
+   4️⃣ Receive PREMIUM_ACCOUNTS.txt
 
-===================================================
-     🔽 USE THE MENU BUTTON BELOW FOR COMMANDS
-===================================================
+🕹️ COMMANDS:
+   /start      → Show menu
+   /help       → Instructions
+   /stats      → Statistics
+   /tokenonly  → Token-only mode
+   /fullinfo   → Full details mode
+   /cancel     → Stop current task
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔽 USE THE MENU BUTTON BELOW FOR COMMANDS
 """)
 
 async def bot_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("""
-===================================================
-                 HELP & INSTRUCTIONS
-===================================================
+📖 HELP & INSTRUCTIONS
 
-  STEP 1: Export Cookies
-     - EditThisCookie
-     - Cookie-Editor
-     - Get cookies.txt
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  STEP 2: Send Files
-     - Send single .txt or .json
-     - OR send ZIP with multiple files
+STEP 1: Export Cookies
+   - EditThisCookie
+   - Cookie-Editor
+   - Get cookies.txt
 
-  STEP 3: Get Results
-     - PREMIUM_ACCOUNTS.txt file
-     - Full account details
-     - NFToken login links
+STEP 2: Send Files
+   - Send single .txt or .json
+   - OR send ZIP with multiple files
 
-===================================================
-     USE THE MENU BUTTON FOR COMMANDS
-===================================================
+STEP 3: Get Results
+   - PREMIUM_ACCOUNTS.txt file
+   - Full account details
+   - NFToken login links
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔽 USE THE MENU BUTTON FOR COMMANDS
 """)
 
 async def bot_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"""
-===================================================
-                BOT STATISTICS
-===================================================
+📊 BOT STATISTICS
 
-  Total files processed: {stats['total']}
-  ✅ Valid Premium accounts: {stats['valid']}
-  🆓 Free accounts: {stats['free']}
-  ❌ Failed/Invalid: {stats['failed']}
-  🔄 Currently processing: {stats['processing']}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-  🤖 Bot is running normally
+Total files processed: {stats['total']}
+✅ Valid Premium accounts: {stats['valid']}
+🆓 Free accounts: {stats['free']}
+❌ Failed/Invalid: {stats['failed']}
+🔄 Currently processing: {stats['processing']}
 
-===================================================
+🤖 Bot is running normally
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """)
 
 async def bot_tokenonly(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -966,7 +961,7 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     remaining = total_files - processed
                     eta = remaining / speed if speed > 0 else 0
                     
-                    # Update progress message
+                    # Update progress message (no frames)
                     progress_msg = format_progress_message(
                         processed, total_files, 
                         stats['valid'], premium_count, free_count, 
