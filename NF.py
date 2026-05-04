@@ -878,7 +878,6 @@ async def process_single_bundle(update: Update, context: ContextTypes.DEFAULT_TY
         
         return result, "success" if is_sub else "free"
     else:
-        # Try to get partial data
         partial_info = extract_info(response_text) if response_text else {}
         if partial_info and has_any_account_info(partial_info):
             is_sub = is_subscribed_account(partial_info)
@@ -896,7 +895,7 @@ Membership: {partial_info.get('membershipStatus', 'Unknown')}
             return None, f"HTTP {status_code}"
 
 
-# ==================== SINGLE FILE HANDLER (NOW SUPPORTS MULTIPLE BUNDLES) ====================
+# ==================== SINGLE FILE HANDLER (SUPPORTS MULTIPLE BUNDLES) ====================
 
 async def handle_single_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global stats
@@ -912,13 +911,11 @@ async def handle_single_file(update: Update, context: ContextTypes.DEFAULT_TYPE)
         user_tasks[uid]['active'] = False
         return
     
-    # Read file content
     file = await doc.get_file()
     data = BytesIO()
     await file.download_to_memory(data)
     content = data.getvalue().decode('utf-8', errors='ignore')
     
-    # Extract all bundles from the file (multiple cookies in one file)
     bundles = extract_netflix_cookie_bundles(content)
     
     if not bundles:
@@ -930,7 +927,6 @@ async def handle_single_file(update: Update, context: ContextTypes.DEFAULT_TYPE)
     total_bundles = len(bundles)
     await update.message.reply_text(f"📦 Found {total_bundles} cookie(s) in this file. Starting check...")
     
-    # Send initial progress message
     status_msg = await update.message.reply_text(f"📥 Processing: {fname}\n\n{format_progress_message(0, total_bundles, 0, 0, 0, 0, 0, 0)}")
     
     premium_results = []
@@ -939,28 +935,32 @@ async def handle_single_file(update: Update, context: ContextTypes.DEFAULT_TYPE)
     invalid_count = 0
     processed = 0
     
+    last_update_time = time.time()
+    update_interval = 2.0
+    last_processed = 0
+    
     for idx, bundle in enumerate(bundles, 1):
-        # Check for cancellation
         if user_tasks[uid].get('cancel', False):
             await status_msg.edit_text("⏹️ Task cancelled by user")
             break
         
-        # Calculate progress
-        elapsed = time.time() - start_time
-        speed = processed / elapsed if elapsed > 0 else 0
-        remaining = total_bundles - processed
-        eta = remaining / speed if speed > 0 else 0
+        current_time = time.time()
+        if current_time - last_update_time >= update_interval or processed - last_processed >= 5 or processed == total_bundles:
+            elapsed = time.time() - start_time
+            premium_count = len([r for r in premium_results if r.startswith(("=", "STATUS:", "Account:"))])
+            speed = processed / elapsed if elapsed > 0 else 0
+            remaining = total_bundles - processed
+            eta = remaining / speed if speed > 0 else 0
+            
+            progress_msg = format_progress_message(
+                processed, total_bundles,
+                stats['valid'], premium_count, free_count,
+                invalid_count, speed, eta
+            )
+            await status_msg.edit_text(progress_msg)
+            last_update_time = current_time
+            last_processed = processed
         
-        # Update progress message
-        premium_count = len([r for r in premium_results if r.startswith(("=", "STATUS:", "Account:"))])
-        progress_msg = format_progress_message(
-            processed, total_bundles,
-            stats['valid'], premium_count, free_count,
-            invalid_count, speed, eta
-        )
-        await status_msg.edit_text(progress_msg)
-        
-        # Process bundle
         result, result_type = await process_single_bundle(update, context, bundle, fname, status_msg, idx, total_bundles)
         
         if result:
@@ -981,21 +981,7 @@ async def handle_single_file(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
         stats['total'] += 1
         processed += 1
-        
-        # Update progress after each bundle
-        elapsed = time.time() - start_time
-        speed = processed / elapsed if elapsed > 0 else 0
-        remaining = total_bundles - processed
-        eta = remaining / speed if speed > 0 else 0
-        premium_count = len([r for r in premium_results if r.startswith(("=", "STATUS:", "Account:"))])
-        progress_msg = format_progress_message(
-            processed, total_bundles,
-            stats['valid'], premium_count, free_count,
-            invalid_count, speed, eta
-        )
-        await status_msg.edit_text(progress_msg)
     
-    # Final statistics
     if not user_tasks[uid].get('cancel', False):
         elapsed = time.time() - start_time
         pc = len([r for r in premium_results if r.startswith(("=", "STATUS:", "Account:"))])
@@ -1066,6 +1052,10 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     total_files = 0
     processed = 0
     
+    last_update_time = time.time()
+    update_interval = 2.0
+    last_processed = 0
+    
     try:
         with zipfile.ZipFile(zip_data, 'r') as zf:
             files = [f for f in zf.namelist() if f.endswith(('.txt', '.json'))]
@@ -1092,9 +1082,25 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         stats['failed'] += 1
                         processed += 1
                         stats['total'] += 1
+                        
+                        current_time = time.time()
+                        if current_time - last_update_time >= update_interval or processed - last_processed >= 5 or processed == total_files:
+                            elapsed = time.time() - start
+                            premium_count = len([r for r in premium_accounts if r.startswith(("=", "STATUS:", "Account:"))])
+                            speed = processed / elapsed if elapsed > 0 else 0
+                            remaining = total_files - processed
+                            eta = remaining / speed if speed > 0 else 0
+                            
+                            progress_msg = format_progress_message(
+                                processed, total_files,
+                                stats['valid'], premium_count, free_count,
+                                invalid_count, speed, eta
+                            )
+                            await msg.edit_text(progress_msg)
+                            last_update_time = current_time
+                            last_processed = processed
                         continue
                     
-                    # Process each bundle in the file
                     for bundle_idx, bundle in enumerate(bundles):
                         cookies = bundle.get("cookies", {})
                         if has_required_netflix_cookies(cookies):
@@ -1147,19 +1153,22 @@ Membership: {partial_info.get('membershipStatus', 'Unknown')}
                     
                     processed += 1
                     
-                    # Update progress
-                    elapsed = time.time() - start
-                    premium_count = len([r for r in premium_accounts if r.startswith(("=", "STATUS:", "Account:"))])
-                    speed = processed / elapsed if elapsed > 0 else 0
-                    remaining = total_files - processed
-                    eta = remaining / speed if speed > 0 else 0
-                    
-                    progress_msg = format_progress_message(
-                        processed, total_files,
-                        stats['valid'], premium_count, free_count,
-                        invalid_count, speed, eta
-                    )
-                    await msg.edit_text(progress_msg)
+                    current_time = time.time()
+                    if current_time - last_update_time >= update_interval or processed - last_processed >= 5 or processed == total_files:
+                        elapsed = time.time() - start
+                        premium_count = len([r for r in premium_accounts if r.startswith(("=", "STATUS:", "Account:"))])
+                        speed = processed / elapsed if elapsed > 0 else 0
+                        remaining = total_files - processed
+                        eta = remaining / speed if speed > 0 else 0
+                        
+                        progress_msg = format_progress_message(
+                            processed, total_files,
+                            stats['valid'], premium_count, free_count,
+                            invalid_count, speed, eta
+                        )
+                        await msg.edit_text(progress_msg)
+                        last_update_time = current_time
+                        last_processed = processed
                     
                 except Exception as e:
                     invalid_count += 1
