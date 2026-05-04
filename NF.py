@@ -295,6 +295,115 @@ def normalize_phone_number(phone, country_code=None):
     return cleaned
 
 
+def clean_profile_names(profiles_raw):
+    """تنقية أسماء البروفايلات وإزالة أسماء الأجهزة"""
+    if not profiles_raw:
+        return [], 0
+    
+    # قائمة الأسماء المرفوضة (أجهزة ومتصفحات)
+    forbidden_names = [
+        'android', 'tablet', 'apple', 'windows', 'mac', 'linux',
+        'chrome', 'firefox', 'safari', 'edge', 'opera', 'brave',
+        'ios', 'ipad', 'iphone', 'smart tv', 'tv', 'netflix',
+        'profile', 'user', 'default', 'unknown', 'device',
+        'mobile', 'phone', 'computer', 'pc', 'laptop', 'desktop',
+        'smartphone', 'ipod', 'watch', 'android tv', 'roku',
+        'apple tv', 'google tv', 'amazon', 'fire stick', 'chromecast'
+    ]
+    
+    # تقسيم الأسماء
+    names_list = [p.strip() for p in profiles_raw.split(",") if p.strip()]
+    
+    # تصفية الأسماء
+    clean_names = []
+    for name in names_list:
+        name_lower = name.lower()
+        # تجاهل الأسماء المرفوضة
+        if name_lower in forbidden_names:
+            continue
+        # تجاهل الأسماء القصيرة جداً (حرف أو حرفين)
+        if len(name) < 3:
+            continue
+        # تجاهل الأسماء اللي فيها كلمات مفتاحية
+        skip = False
+        for forbidden in forbidden_names:
+            if forbidden in name_lower:
+                skip = True
+                break
+        if skip:
+            continue
+        clean_names.append(name)
+    
+    # لو مفيهوش أسماء نظيفة، حاول ترجع أي اسم
+    if not clean_names:
+        clean_names = [n for n in names_list if n.lower() not in forbidden_names]
+    
+    return clean_names, len(clean_names)
+
+
+def extract_payment_method_strong(html_content, info):
+    """استخراج وسيلة الدفع من كل المصادر الممكنة"""
+    
+    # المحاولة 1: من paymentMethodType في info
+    payment = info.get("paymentMethodType")
+    if payment and payment != "Unknown" and payment != "N/A" and payment != "null":
+        if payment.upper() == "CC":
+            return "Credit Card"
+        if payment.upper() == "PAYPAL":
+            return "PayPal"
+        if payment.upper() == "IDEAL":
+            return "iDEAL"
+        if payment.upper() == "GIFT":
+            return "Gift Card"
+        return payment
+    
+    # المحاولة 2: من HTML المباشر
+    patterns = [
+        r'"paymentMethodType"\s*:\s*"([^"]+)"',
+        r'"paymentOptionLogo"\s*:\s*"([^"]+)"',
+        r'"paymentMethod"\s*:\s*"([^"]+)"',
+        r'"paymentType"\s*:\s*"([^"]+)"',
+        r'"payment_method"\s*:\s*"([^"]+)"',
+        r'"payer"\s*:\s*"([^"]+)"',
+        r'"billingMethod"\s*:\s*"([^"]+)"',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, html_content)
+        if match:
+            payment = decode_netflix_value(match.group(1))
+            if payment and payment not in ["Unknown", "N/A", "null", "", None]:
+                if payment.upper() == "CC":
+                    return "Credit Card"
+                if payment.upper() == "PAYPAL":
+                    return "PayPal"
+                return payment
+    
+    # المحاولة 3: من maskedCard (لو في كارت يبقى أكيد في طريقة دفع)
+    card = info.get("maskedCard")
+    if card and card != "N/A" and card != "Unknown":
+        return "Credit Card"
+    
+    # المحاولة 4: من paymentMethodExists
+    payment_exists = info.get("paymentMethodExists")
+    if payment_exists and str(payment_exists).lower() in ["true", "yes", "1"]:
+        return "Payment Method Registered"
+    
+    # المحاولة 5: البحث عن كلمات في الـ HTML
+    html_lower = html_content.lower()
+    if "credit card" in html_lower or "visa" in html_lower or "mastercard" in html_lower or "american express" in html_lower:
+        return "Credit Card"
+    if "paypal" in html_lower:
+        return "PayPal"
+    if "ideal" in html_lower:
+        return "iDEAL"
+    if "gift card" in html_lower or "gift certificate" in html_lower:
+        return "Gift Card"
+    if "direct debit" in html_lower:
+        return "Direct Debit"
+    
+    return "Unknown"
+
+
 # ==================== COOKIE EXTRACTION FUNCTIONS ====================
 
 def is_netflix_domain(domain):
@@ -578,49 +687,12 @@ def extract_account_info(growth_account):
     return {k: v for k, v in info.items() if v}
 
 def get_name_from_profiles(info):
-    """استخراج الاسم من أول بروفايل"""
+    """استخراج الاسم من أول بروفايل حقيقي"""
     profiles_raw = info.get("profiles") or ""
     if profiles_raw:
-        profiles_list = [p.strip() for p in profiles_raw.split(",") if p.strip()]
-        # فلترة أسماء المتصفحات
-        for name in profiles_list:
-            if name.lower() not in ['chrome', 'firefox', 'safari', 'edge', 'opera', 'windows', 'mac', 'linux', 'unknown']:
-                return name
-        if profiles_list:
-            return profiles_list[0]
-    return "Unknown"
-
-def extract_payment_method_full(html_content, info):
-    """استخراج وسيلة الدفع من كل المصادر"""
-    
-    # المحاولة 1: من GraphQL
-    payment = info.get("paymentMethodType")
-    if payment and payment != "Unknown" and payment != "N/A":
-        if payment.upper() == "CC":
-            return "Credit Card"
-        return payment
-    
-    # المحاولة 2: من HTML
-    patterns = [
-        r'"paymentMethodType"\s*:\s*"([^"]+)"',
-        r'"paymentOptionLogo"\s*:\s*"([^"]+)"',
-        r'"paymentMethod"\s*:\s*"([^"]+)"',
-        r'"paymentType"\s*:\s*"([^"]+)"',
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, html_content)
-        if match:
-            payment = decode_netflix_value(match.group(1))
-            if payment and payment != "null":
-                if payment.upper() == "CC":
-                    return "Credit Card"
-                return payment
-    
-    # المحاولة 3: من maskedCard (لو في كارت يبقى أكيد في طريقة دفع)
-    card = info.get("maskedCard")
-    if card and card != "N/A":
-        return "Credit Card"
-    
+        clean_names, _ = clean_profile_names(profiles_raw)
+        if clean_names:
+            return clean_names[0]
     return "Unknown"
 
 def extract_profile_names(response_text):
@@ -884,14 +956,17 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
     next_billing = format_display_date(info.get("nextBillingDate")) or "Unknown"
     
     # وسيلة الدفع - استخراج محسن
-    payment = extract_payment_method_full(cookie_filename if hasattr(cookie_filename, 'find') else "", info)
+    payment = extract_payment_method_strong(cookie_filename if hasattr(cookie_filename, 'find') else "", info)
     if payment == "Unknown":
-        # محاولة أخيرة
-        payment = decode_netflix_value(info.get("paymentMethodType")) or "Unknown"
-        if payment and payment.upper() == "CC":
+        payment = info.get("paymentMethodType") or "Unknown"
+        if payment in ["CC", "Credit Card"]:
             payment = "Credit Card"
     
     card = decode_netflix_value(info.get("maskedCard")) or "N/A"
+    card_display = ""
+    if card != "N/A" and card:
+        card_display = f"Card: {card}"
+    
     phone = decode_netflix_value(info.get("phoneNumber")) or "N/A"
     phone_verified = "Verified" if format_boolean_label(info.get("phoneVerified")) == "Yes" else "Not Verified"
     quality = decode_netflix_value(info.get("videoQuality")) or "Unknown"
@@ -901,19 +976,12 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
     email_verified = "Yes" if format_boolean_label(info.get("emailVerified")) == "Yes" else "No"
     membership_status = decode_netflix_value(info.get("membershipStatus")) or "Unknown"
     
-    # Get profiles
+    # Get profiles - استخدام دالة التنقية
     profiles_raw = info.get("profiles") or ""
-    profiles_list = []
-    for p in profiles_raw.split(","):
-        p_clean = p.strip()
-        if p_clean and p_clean.lower() not in ['chrome', 'firefox', 'safari', 'edge', 'opera']:
-            profiles_list.append(p_clean)
+    clean_profiles, clean_profiles_count = clean_profile_names(profiles_raw)
     
-    if not profiles_list and profiles_raw:
-        profiles_list = [p.strip() for p in profiles_raw.split(",") if p.strip()]
-    
-    profiles_count = info.get("profileCount") or len(profiles_list)
-    profiles_display = ", ".join(profiles_list[:10]) if profiles_list else "None"
+    profiles_display = ", ".join(clean_profiles[:15]) if clean_profiles else "None"
+    profiles_count = clean_profiles_count if clean_profiles_count > 0 else (info.get("profileCount") or 0)
     
     lines = []
     lines.append("=" * 65)
@@ -936,8 +1004,8 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
             lines.append(f"Next Billing: {next_billing}")
         if payment and payment != "Unknown":
             lines.append(f"Payment: {payment}")
-        if payment and payment.upper() == "CC" and card != "N/A" and card:
-            lines.append(f"Card: {card}")
+        if card_display:
+            lines.append(card_display)
         if phone != "N/A" and phone:
             lines.append(f"Phone: {phone} ({phone_verified})")
         if quality != "Unknown":
