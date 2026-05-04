@@ -237,7 +237,6 @@ def clean_text(text):
     text = text.replace('\\x2F', '/')
     text = text.replace('\\"', '"')
     text = re.sub(r'\\x[0-9a-fA-F]{2}', '', text)
-    # إزالة التكرار في الدولة
     if len(text) == 5 and text[2] == ' ' and text[0:2] == text[3:5]:
         text = text[0:2]
     return text.strip()
@@ -278,7 +277,12 @@ def normalize_phone_number(phone, country_code=None):
     if not cleaned:
         return phone
     
-    if country_code in ["ID", "IN"]:
+    if country_code in ["ZA", "South Africa"]:
+        if cleaned.startswith('0'):
+            cleaned = '27' + cleaned[1:]
+        if not cleaned.startswith('27') and len(cleaned) >= 9:
+            cleaned = '27' + cleaned
+    elif country_code in ["ID", "IN"]:
         if cleaned.startswith('0'):
             cleaned = '62' + cleaned[1:]
         if not cleaned.startswith('62') and len(cleaned) >= 10:
@@ -292,6 +296,57 @@ def normalize_phone_number(phone, country_code=None):
     if len(cleaned) >= 10:
         return f"+{cleaned}"
     return cleaned
+
+
+def get_full_country_name(country_code):
+    """تحويل كود الدولة لاسم كامل"""
+    countries = {
+        "ZA": "South Africa",
+        "EG": "Egypt",
+        "SA": "Saudi Arabia",
+        "AE": "United Arab Emirates",
+        "US": "United States",
+        "GB": "United Kingdom",
+        "IN": "India",
+        "PK": "Pakistan",
+        "RO": "Romania",
+        "ID": "Indonesia",
+        "MY": "Malaysia",
+        "SG": "Singapore",
+        "PH": "Philippines",
+        "TH": "Thailand",
+        "VN": "Vietnam",
+        "BR": "Brazil",
+        "MX": "Mexico",
+        "CA": "Canada",
+        "AU": "Australia",
+        "DE": "Germany",
+        "FR": "France",
+        "ES": "Spain",
+        "IT": "Italy",
+        "TR": "Turkey",
+        "NL": "Netherlands",
+        "SE": "Sweden",
+        "NO": "Norway",
+        "DK": "Denmark",
+        "FI": "Finland",
+        "PL": "Poland",
+        "GR": "Greece",
+        "PT": "Portugal",
+        "IE": "Ireland",
+        "BE": "Belgium",
+        "CH": "Switzerland",
+        "AT": "Austria",
+        "CZ": "Czech Republic",
+        "HU": "Hungary",
+        "IL": "Israel",
+        "JP": "Japan",
+        "KR": "South Korea",
+        "CN": "China",
+        "TW": "Taiwan",
+        "HK": "Hong Kong",
+    }
+    return countries.get(country_code.upper(), country_code)
 
 
 def clean_profile_names(profiles_raw):
@@ -308,7 +363,8 @@ def clean_profile_names(profiles_raw):
         'smartphone', 'ipod', 'watch', 'android tv', 'roku',
         'apple tv', 'google tv', 'amazon', 'fire stick', 'chromecast',
         'api', 'akira', 'buildidentifier', 'identifier', 'null',
-        'undefined', 'none', 'nil', 'false', 'true', 'build'
+        'undefined', 'none', 'nil', 'false', 'true', 'build',
+        'premium', 'standard', 'basic', 'free'
     ]
     
     names_list = [p.strip() for p in profiles_raw.split(",") if p.strip()]
@@ -319,7 +375,7 @@ def clean_profile_names(profiles_raw):
         
         if name_lower in forbidden_names:
             continue
-        if len(name) < 3:
+        if len(name) < 2:
             continue
         
         skip = False
@@ -338,7 +394,10 @@ def clean_profile_names(profiles_raw):
         clean_names.append(name)
     
     if not clean_names:
-        clean_names = [n for n in names_list if n.lower() not in forbidden_names]
+        for name in names_list:
+            if name.lower() not in forbidden_names:
+                clean_names.append(name)
+                break
     
     return clean_names, len(clean_names)
 
@@ -412,7 +471,7 @@ def extract_payment_method_strong(html_content, info):
     if "ideal" in html_lower:
         return "iDEAL"
     
-    return "Unknown"
+    return "Credit Card"
 
 
 # ==================== COOKIE EXTRACTION FUNCTIONS ====================
@@ -841,10 +900,10 @@ def country_code_to_flag(country_code):
     return ""
 
 def format_country_with_flag(country_value):
-    country = decode_netflix_value(country_value) or "Unknown"
-    country = clean_text(country)
-    flag = country_code_to_flag(country)
-    return f"{country} {flag}".strip()
+    country_code = decode_netflix_value(country_value) or "Unknown"
+    country_name = get_full_country_name(country_code)
+    flag = country_code_to_flag(country_code)
+    return f"{country_name} {flag}".strip()
 
 def get_nftoken_mode(config):
     val = config.get("nftoken", "both")
@@ -941,10 +1000,8 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
     next_billing = format_display_date(info.get("nextBillingDate")) or "Unknown"
     
     payment = extract_payment_method_strong(cookie_filename if hasattr(cookie_filename, 'find') else "", info)
-    if payment == "Unknown":
-        payment = info.get("paymentMethodType") or "Unknown"
-        if payment in ["CC", "Credit Card"]:
-            payment = "Credit Card"
+    if payment == "Unknown" or not payment:
+        payment = "Credit Card"
     
     card = decode_netflix_value(info.get("maskedCard")) or "N/A"
     card_display = ""
@@ -1042,6 +1099,7 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
         mode = get_nftoken_mode(config)
         for label, link in build_nftoken_links(nftoken_data["token"], mode):
             lines.append(f"{label}:")
+            lines.append("")
             lines.append(link)
             lines.append("")
         if nftoken_data.get("expires_at_utc"):
@@ -1103,7 +1161,7 @@ async def bot_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
    1️⃣ Export cookies (.txt or .json)
    2️⃣ Send files directly (single or ZIP)
    3️⃣ Watch progress bar
-   4️⃣ Receive PREMIUM_ACCOUNTS.txt
+   4️⃣ Receive files by plan (Premium/Standard/Basic/Free)
 
 🕹️ COMMANDS:
    /start      → Show menu
@@ -1124,15 +1182,18 @@ STEP 1: Export Cookies
    - EditThisCookie
    - Cookie-Editor
    - Get cookies.txt
+   - Export as JSON for best results
 
 STEP 2: Send Files
    - Send single .txt or .json
    - OR send ZIP with multiple files
 
 STEP 3: Get Results
-   - PREMIUM_ACCOUNTS.txt file
-   - Full account details
-   - NFToken login links
+   - PREMIUM_ACCOUNTS.txt (Premium plans)
+   - STANDARD_ACCOUNTS.txt (Standard plans)
+   - BASIC_ACCOUNTS.txt (Basic plans)
+   - FREE_ACCOUNTS.txt (Free accounts)
+   - PARTIAL_DATA.txt (Limited data)
 
 🔽 USE THE MENU BUTTON FOR COMMANDS
 """)
@@ -1194,7 +1255,7 @@ async def process_single_bundle(update: Update, context: ContextTypes.DEFAULT_TY
         mode = context.user_data.get('mode', 'fullinfo')
         if mode == 'tokenonly':
             email = info.get("email", "Unknown")
-            result = f"Account: {email}\n\nNFToken Login Links:\n---\nPC Login: https://netflix.com/?nftoken={nftoken['token']}\nPhone Login: https://netflix.com/unsupported?nftoken={nftoken['token']}"
+            result = f"Account: {email}\n\nNFToken Login Links:\n---\nPC Login:\n\nhttps://netflix.com/?nftoken={nftoken['token']}\n\nPhone Login:\n\nhttps://netflix.com/unsupported?nftoken={nftoken['token']}"
             return result, None, "success" if is_sub else "free"
         else:
             result_lines, plan_key = format_result_beautiful(info, is_sub, bundle.get("netscape_text", ""), cookie_filename, nftoken, config)
@@ -1453,7 +1514,7 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                         nftoken, _ = create_nftoken(cookies, 1)
                                     if mode == 'tokenonly':
                                         email = info.get("email", "Unknown")
-                                        res = f"Account: {email}\n\nNFToken Login Links:\n---\nPC Login: https://netflix.com/?nftoken={nftoken['token']}\nPhone Login: https://netflix.com/unsupported?nftoken={nftoken['token']}"
+                                        res = f"Account: {email}\n\nNFToken Login Links:\n---\nPC Login:\n\nhttps://netflix.com/?nftoken={nftoken['token']}\n\nPhone Login:\n\nhttps://netflix.com/unsupported?nftoken={nftoken['token']}"
                                         plan_key = "unknown"
                                     else:
                                         result_lines, plan_key = format_result_beautiful(info, is_sub, bundle.get("netscape_text", ""), cf, nftoken, config)
