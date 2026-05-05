@@ -1195,7 +1195,7 @@ STEP 3: Get Results
    - FREE_ACCOUNTS.txt (Free accounts)
    - PARTIAL_DATA.txt (Limited data)
 
-🔽 USE THE MENU BUTTON FOR COMMANDS
+🔽 MENU BUTTON FOR COMMANDS
 """)
 
 async def bot_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
