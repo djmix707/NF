@@ -1149,7 +1149,8 @@ async def bot_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(f"""
 🎬 Netflix Cookie Checker Bot
-⚡ Developer: Eyad 🚀
+
+    ⚡ Developer: Eyad 🚀
 
 
 ✨ Welcome {first_name}! ✨
@@ -1161,11 +1162,10 @@ async def bot_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
    ✅ Extract premium account details
 
 ⚙️ HOW TO USE:
-
    1️⃣ Export cookies (.txt or .json)
    2️⃣ Send files directly (single or ZIP)
    3️⃣ Watch progress bar
-   4️⃣ Receive files by plan
+   4️⃣ Receive files by Plan
 
 
 🕹️ COMMANDS:
