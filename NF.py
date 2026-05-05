@@ -1148,9 +1148,9 @@ async def bot_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     first_name = user.first_name if user.first_name else "User"
     
     await update.message.reply_text(f"""
-🎬 Netflix Cookie Checker Bot
+   🎬 Netflix Cookie Checker Bot
 
-    ⚡ Developer: Eyad 🚀
+       ⚡ Developer: Eyad 🚀
 
 
 ✨ Welcome {first_name}! ✨
