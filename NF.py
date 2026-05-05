@@ -1161,7 +1161,7 @@ async def bot_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
    1️⃣ Export cookies (.txt or .json)
    2️⃣ Send files directly (single or ZIP)
    3️⃣ Watch progress bar
-   4️⃣ Receive files by plan (Premium/Standard/Basic/Free)
+   4️⃣ Receive files by plan
 
 🕹️ COMMANDS:
    /start      → Show menu
