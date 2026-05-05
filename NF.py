@@ -1151,27 +1151,33 @@ async def bot_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 🎬 Netflix Cookie Checker Bot
 ⚡ Developer: Eyad 🚀
 
+
 ✨ Welcome {first_name}! ✨
 
 📌 WHAT I DO:
+
    ✅ Verify Netflix cookies
+   
    ✅ Extract premium account details
 
 ⚙️ HOW TO USE:
+
    1️⃣ Export cookies (.txt or .json)
    2️⃣ Send files directly (single or ZIP)
    3️⃣ Watch progress bar
-   4️⃣ Receive files by plan (Premium/Standard/Basic/Free)
+   4️⃣ Receive files by plan
+
 
 🕹️ COMMANDS:
-   /start      → Show menu
-   /help       → Instructions
-   /stats      → Statistics
+
+   /start  → Show menu
+   /help   → Instructions
+   /stats  → Statistics
    /tokenonly  → Token-only mode
    /fullinfo   → Full details mode
    /cancel     → Stop current task
 
-🔽 USE THE MENU BUTTON BELOW FOR COMMANDS
+🔽 THE MENU BUTTON BELOW FOR COMMANDS
 """)
 
 async def bot_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
