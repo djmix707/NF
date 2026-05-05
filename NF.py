@@ -150,11 +150,7 @@ def load_config():
                 user_config = yaml.safe_load(f) or {}
             return merge_config(DEFAULT_CONFIG, user_config), config_yaml_path
         except Exception:
-            with open(config_yaml_path, "w", encoding="utf-8") as f:
-                f.write(DEFAULT_YAML_CONFIG)
             return copy.deepcopy(DEFAULT_CONFIG), config_yaml_path
-    with open(config_yaml_path, "w", encoding="utf-8") as f:
-        f.write(DEFAULT_YAML_CONFIG)
     return copy.deepcopy(DEFAULT_CONFIG), config_yaml_path
 
 def merge_config(default_cfg, user_cfg):
