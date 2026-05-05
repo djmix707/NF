@@ -226,7 +226,6 @@ def write_text_file_safely(path, content):
         f.write(content)
 
 def clean_text(text):
-    """تنظيف النصوص من الرموز المشفرة"""
     if not text:
         return None
     text = html.unescape(text)
@@ -270,7 +269,6 @@ def format_boolean_label(value):
     return None
 
 def normalize_phone_number(phone, country_code=None):
-    """تنسيق رقم الهاتف"""
     if not phone:
         return None
     cleaned = re.sub(r'\D', '', str(phone))
@@ -302,9 +300,7 @@ def normalize_phone_number(phone, country_code=None):
         return f"+{cleaned}"
     return cleaned
 
-
 def get_full_country_name(country_code):
-    """تحويل كود الدولة لاسم كامل"""
     countries = {
         "ZA": "South Africa",
         "EG": "Egypt",
@@ -353,9 +349,7 @@ def get_full_country_name(country_code):
     }
     return countries.get(country_code.upper(), country_code)
 
-
 def clean_profile_names(profiles_raw):
-    """تنقية أسماء البروفايلات وإزالة أسماء الأجهزة والكلمات الغريبة"""
     if not profiles_raw:
         return [], 0
     
@@ -406,9 +400,7 @@ def clean_profile_names(profiles_raw):
     
     return clean_names, len(clean_names)
 
-
 def get_membership_status_display(status):
-    """تحويل حالة العضوية لنص مفهوم"""
     status_map = {
         "current_member": "Active",
         "former_member": "Cancelled / Expired",
@@ -420,10 +412,7 @@ def get_membership_status_display(status):
     normalized = normalize_plan_key(status) if status else "unknown"
     return status_map.get(normalized, status or "Unknown")
 
-
 def extract_payment_method_strong(html_content, info):
-    """استخراج وسيلة الدفع من كل المصادر الممكنة"""
-    
     payment = info.get("paymentMethodType")
     if payment and payment != "Unknown" and payment != "N/A" and payment != "null":
         if payment.upper() == "CC":
@@ -655,10 +644,9 @@ def cookies_dict_from_netscape(netscape_text):
     return cookies
 
 
-# ==================== ADVANCED ACCOUNT INFO EXTRACTION ====================
+# ==================== ACCOUNT INFO EXTRACTION ====================
 
 def extract_graphql_data(html_content):
-    """استخراج GraphQL payload من HTML"""
     results = {}
     
     script_pattern = r'<script[^>]*>window\.__NUXT__\s*=\s*({.*?})</script>'
@@ -693,7 +681,6 @@ def extract_graphql_data(html_content):
     return results
 
 def extract_account_info(growth_account):
-    """استخراج بيانات الحساب من growthAccount"""
     info = {}
     
     info['accountOwnerName'] = decode_netflix_value(growth_account.get('ownerName'))
@@ -752,7 +739,6 @@ def extract_account_info(growth_account):
     return {k: v for k, v in info.items() if v}
 
 def get_name_from_profiles(info):
-    """استخراج الاسم من أول بروفايل حقيقي"""
     profiles_raw = info.get("profiles") or ""
     if profiles_raw:
         clean_names, _ = clean_profile_names(profiles_raw)
@@ -783,7 +769,6 @@ def has_any_account_info(info):
     return any(info.get(f) for f in important_fields)
 
 def extract_info_fallback(response_text):
-    """استخراج المعلومات من HTML العادي"""
     extracted = {
         "accountOwnerName": extract_first_match(response_text, [r'"ownerName":"([^"]+)"', r'"name":"([^"]+)"', r'"accountOwnerName":"([^"]+)"']),
         "email": extract_first_match(response_text, [r'"email":"([^"]+)"', r'"loginId":"([^"]+)"', r'"emailAddress":"([^"]+)"']),
@@ -980,7 +965,7 @@ def get_account_page(session, proxy=None, timeout=15):
     return resp.text, resp.status_code, extract_info(resp.text)
 
 
-# ==================== RESULT FORMATTING (EXACTLY LIKE SCREENSHOT) ====================
+# ==================== RESULT FORMATTING ====================
 
 def format_result_like_screenshot(info, is_subscribed, cookie_content, nftoken_data=None):
     """تنسيق النتيجة بنفس شكل الصورة بالضبط"""
@@ -1063,7 +1048,6 @@ def format_result_like_screenshot(info, is_subscribed, cookie_content, nftoken_d
     lines.append("Account Filter: Premium Only")
     lines.append("Mode: Full Information")
     
-    # NFToken Links
     if nftoken_data and has_usable_nftoken(nftoken_data):
         lines.append("")
         lines.append("NFToken Login Links:")
@@ -1109,22 +1093,18 @@ Filter: Premium accounts only
 # ==================== TEXT COOKIE HANDLER ====================
 
 async def handle_text_cookie(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """معالجة الكوكيز المرسلة كنص في الشات - تظهر النتيجة زي الصورة"""
+    """معالجة الكوكيز المرسلة كنص في الشات"""
     text = update.message.text
     
-    # التحقق من وجود NetflixId في النص (دليل على أنه كوكيز)
     if 'NetflixId' not in text or len(text) < 100:
-        return  # مش كوكيز، نتجاهل
+        return
     
     status_msg = await update.message.reply_text("🔍 Cookie detected! Processing...")
     
     try:
-        # محاولة استخراج الكوكيز من النص
         bundles = extract_netflix_cookie_bundles(text)
         
         if not bundles:
-            # محاولة بديلة: البحث المباشر
-            import re
             match = re.search(r'NetflixId[=: ]+([^\s]+)', text)
             if match:
                 netflix_id = match.group(1)
@@ -1135,7 +1115,7 @@ async def handle_text_cookie(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 bundles = [{"netscape_text": text, "cookies": cookies}]
         
         if not bundles:
-            await status_msg.edit_text("❌ No valid Netflix cookies found in the text.")
+            await status_msg.edit_text("❌ No valid Netflix cookies found.")
             return
         
         bundle = bundles[0]
@@ -1162,12 +1142,10 @@ async def handle_text_cookie(update: Update, context: ContextTypes.DEFAULT_TYPE)
             if nftoken_mode != "false" and is_subscribed:
                 nftoken_data, _ = create_nftoken(cookies, 1)
             
-            # تنسيق النتيجة بنفس شكل الصورة
             result = format_result_like_screenshot(info, is_subscribed, netscape_content, nftoken_data)
             
             await status_msg.delete()
             
-            # تقسيم النتيجة إذا كانت طويلة جداً
             if len(result) > 4096:
                 for i in range(0, len(result), 4096):
                     await update.message.reply_text(result[i:i+4096])
@@ -1202,13 +1180,12 @@ async def bot_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 📌 WHAT I DO:
    ✅ Verify Netflix cookies
-   ✅ Extract full account details
+   ✅ Extract premium account details
 
 ⚙️ HOW TO USE:
    1️⃣ Send cookie files (.txt or .json)
-   2️⃣ Or send ZIP archive with multiple cookies
-   3️⃣ Or paste cookie text directly in chat
-   4️⃣ Get detailed results
+   2️⃣ Or send ZIP archive
+   3️⃣ Or paste cookie text directly
 
 🕹️ COMMANDS:
    /start      → Show menu
@@ -1229,17 +1206,16 @@ STEP 1: Get Cookies
    Use browser extension "Cookie-Editor":
    - Install from Chrome/Firefox store
    - Log into Netflix
-   - Export as JSON (recommended) or Netscape
+   - Export as JSON (recommended)
 
 STEP 2: Send to Bot
    - Send .txt or .json file
    - OR send ZIP with multiple files
-   - OR paste cookie text directly in chat
+   - OR paste cookie text directly
 
 STEP 3: Get Results
-   - Full account details (like the screenshot)
+   - Full account details
    - NFToken login links (PC + Phone)
-   - Account statistics
 
 🔽 USE THE MENU BUTTON FOR COMMANDS
 """)
@@ -1295,33 +1271,31 @@ async def handle_single_file(update: Update, context: ContextTypes.DEFAULT_TYPE)
     bundles = extract_netflix_cookie_bundles(content)
     
     if not bundles:
-        await update.message.reply_text("❌ No valid cookies found in this file.")
+        await update.message.reply_text("❌ No valid cookies found.")
         stats['failed'] += 1
         user_tasks[uid]['active'] = False
         return
     
     total_bundles = len(bundles)
-    await update.message.reply_text(f"📦 Found {total_bundles} cookie(s) in this file. Starting check...")
+    await update.message.reply_text(f"📦 Found {total_bundles} cookie(s). Starting check...")
     
     status_msg = await update.message.reply_text(f"📥 Processing: {fname}\n\n{format_progress_message(0, total_bundles, 0, 0, 0, 0, 0, 0)}")
     
     results = []
-    processed = 0
     valid_count = 0
     free_count = 0
     invalid_count = 0
+    processed = 0
     
     for idx, bundle in enumerate(bundles, 1):
         if user_tasks[uid].get('cancel', False):
-            await status_msg.edit_text("⏹️ Task cancelled by user")
+            await status_msg.edit_text("⏹️ Task cancelled")
             break
         
         cookies = bundle.get("cookies", {})
         if not cookies or not has_required_netflix_cookies(cookies):
             invalid_count += 1
             processed += 1
-            stats['failed'] += 1
-            stats['total'] += 1
             continue
         
         session = requests.Session()
@@ -1340,11 +1314,11 @@ async def handle_single_file(update: Update, context: ContextTypes.DEFAULT_TYPE)
             results.append("\n" + "="*65 + "\n")
             
             if is_sub:
-                stats['valid'] += 1
                 valid_count += 1
+                stats['valid'] += 1
             else:
-                stats['free'] += 1
                 free_count += 1
+                stats['free'] += 1
         else:
             invalid_count += 1
             stats['failed'] += 1
@@ -1406,7 +1380,7 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             for idx, cf in enumerate(files):
                 if user_tasks[uid].get('cancel', False):
-                    await msg.edit_text("⏹️ Task cancelled by user")
+                    await msg.edit_text("⏹️ Task cancelled")
                     break
                 
                 try:
@@ -1416,16 +1390,12 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     if not bundles:
                         invalid_count += 1
                         processed += 1
-                        stats['failed'] += 1
-                        stats['total'] += 1
                         continue
                     
                     for bundle in bundles:
                         cookies = bundle.get("cookies", {})
                         if not cookies or not has_required_netflix_cookies(cookies):
                             invalid_count += 1
-                            stats['failed'] += 1
-                            stats['total'] += 1
                             continue
                         
                         sess = requests.Session()
@@ -1443,11 +1413,11 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             results.append("\n" + "="*65 + "\n")
                             
                             if is_sub:
-                                stats['valid'] += 1
                                 valid_count += 1
+                                stats['valid'] += 1
                             else:
-                                stats['free'] += 1
                                 free_count += 1
+                                stats['free'] += 1
                         else:
                             invalid_count += 1
                             stats['failed'] += 1
@@ -1496,7 +1466,7 @@ Speed: {spd:.2f} files/second
                 else:
                     await update.message.reply_text(all_results)
             else:
-                await update.message.reply_text("⚠️ No valid accounts found in this ZIP file.")
+                await update.message.reply_text("⚠️ No valid accounts found.")
             
     except Exception as e:
         await msg.edit_text(f"❌ Error: {str(e)[:200]}")
@@ -1513,14 +1483,15 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Send .txt, .json, or .zip files")
 
 async def set_commands(app):
-    await app.bot.set_my_commands([
+    commands = [
         BotCommand("start", "Show menu"),
         BotCommand("help", "Instructions"),
         BotCommand("stats", "Statistics"),
         BotCommand("tokenonly", "Token only mode"),
         BotCommand("fullinfo", "Full details mode"),
         BotCommand("cancel", "Stop task"),
-    ])
+    ]
+    await app.bot.set_my_commands(commands)
 
 
 # ==================== MAIN ====================
@@ -1545,8 +1516,12 @@ def main():
     
     import asyncio
     try:
-        asyncio.get_event_loop().run_until_complete(set_commands(app)))
-    except:
+        # ========== هذة كانت المشكلة ==========
+        # القوس الزائد كان هنا: asyncio.get_event_loop().run_until_complete(set_commands(app)))
+        # تم إزالة القوس الزائد
+        asyncio.get_event_loop().run_until_complete(set_commands(app))
+    except Exception as e:
+        print(f"Could not set commands: {e}")
         pass
     
     print("Bot is ready! Send /start on Telegram")
