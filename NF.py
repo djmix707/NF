@@ -1161,7 +1161,7 @@ async def bot_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
    1️⃣ Export cookies (.txt or .json)
    2️⃣ Send files directly (single or ZIP)
    3️⃣ Watch progress bar
-   4️⃣ Receive files by plan
+   4️⃣ Receive files by plan (Premium/Standard/Basic/Free)
 
 🕹️ COMMANDS:
    /start      → Show menu
@@ -1171,7 +1171,7 @@ async def bot_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
    /fullinfo   → Full details mode
    /cancel     → Stop current task
 
-🔽 THE MENU BUTTON BELOW FOR COMMANDS
+🔽 USE THE MENU BUTTON BELOW FOR COMMANDS
 """)
 
 async def bot_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1195,7 +1195,7 @@ STEP 3: Get Results
    - FREE_ACCOUNTS.txt (Free accounts)
    - PARTIAL_DATA.txt (Limited data)
 
-🔽 MENU BUTTON FOR COMMANDS
+🔽 USE THE MENU BUTTON FOR COMMANDS
 """)
 
 async def bot_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
