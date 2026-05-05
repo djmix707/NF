@@ -1171,7 +1171,7 @@ async def bot_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
    /fullinfo   → Full details mode
    /cancel     → Stop current task
 
-🔽 USE THE MENU BUTTON BELOW FOR COMMANDS
+🔽 THE MENU BUTTON BELOW FOR COMMANDS
 """)
 
 async def bot_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
