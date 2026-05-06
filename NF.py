@@ -114,7 +114,7 @@ performance:
   nftoken_for_free: false
 """
 
-APP_VERSION = "4.5.1"
+APP_VERSION = "4.6.0"
 
 # Folders
 cookies_folder = "cookies"
@@ -226,15 +226,16 @@ def write_text_file_safely(path, content):
         f.write(content)
 
 def remove_emojis(text):
-    """إزالة الإيموجي من النص"""
+    """إزالة الإيموجي من النص بالكامل"""
     if not text:
         return text
+    # نمط شامل لجميع الإيموجيات
     emoji_pattern = re.compile(
         "["
-        u"\U0001F600-\U0001F64F"
-        u"\U0001F300-\U0001F5FF"
-        u"\U0001F680-\U0001F6FF"
-        u"\U0001F1E0-\U0001F1FF"
+        u"\U0001F600-\U0001F64F"  # emoticons
+        u"\U0001F300-\U0001F5FF"  # symbols & pictographs
+        u"\U0001F680-\U0001F6FF"  # transport & map symbols
+        u"\U0001F1E0-\U0001F1FF"  # flags
         u"\U00002702-\U000027B0"
         u"\U000024C2-\U0001F251"
         u"\U0001F900-\U0001F9FF"
@@ -243,9 +244,16 @@ def remove_emojis(text):
         u"\uD83C[\uDF00-\uDFFF]"
         u"\uD83D[\uDC00-\uDE4F]"
         u"\uD83D[\uDE80-\uDEFF]"
+        u"\uD83E[\uDD00-\uDDFF]"
         "]+",
         flags=re.UNICODE
     )
+    # أولاً نحول الـ Unicode escapes
+    try:
+        text = text.encode('utf-8').decode('unicode-escape')
+    except:
+        pass
+    # ثم نشيل الإيموجي
     return emoji_pattern.sub(r'', text)
 
 def clean_text(text):
@@ -342,54 +350,30 @@ def get_full_country_name(country_code):
 
 
 def clean_profile_names(profiles_raw):
-    """تنقية أسماء البروفايلات وإزالة أسماء الأجهزة والإيموجي"""
+    """تنقية أسماء البروفايلات - إزالة الإيموجي فقط"""
     if not profiles_raw:
         return [], 0
     
-    forbidden_names = [
-        'android', 'tablet', 'apple', 'windows', 'mac', 'linux',
-        'chrome', 'firefox', 'safari', 'edge', 'opera', 'brave',
-        'ios', 'ipad', 'iphone', 'smart tv', 'tv', 'netflix',
-        'profile', 'user', 'default', 'unknown', 'device',
-        'mobile', 'phone', 'computer', 'pc', 'laptop', 'desktop',
-        'smartphone', 'ipod', 'watch', 'android tv', 'roku',
-        'apple tv', 'google tv', 'amazon', 'fire stick', 'chromecast',
-        'api', 'akira', 'buildidentifier', 'identifier', 'null',
-        'undefined', 'none', 'nil', 'false', 'true', 'build',
-        'premium', 'standard', 'basic', 'free'
-    ]
-    
+    # تنظيف أسماء البروفايلات من الإيموجي
     names_list = [p.strip() for p in profiles_raw.split(",") if p.strip()]
     
     clean_names = []
     for name in names_list:
-        name = remove_emojis(name)
-        if not name or len(name) < 2:
-            continue
-        name_lower = name.lower()
-        if name_lower in forbidden_names:
-            continue
-        skip = False
-        for forbidden in forbidden_names:
-            if forbidden in name_lower:
-                skip = True
-                break
-        if skip:
-            continue
-        if re.match(r'^\d+$', name):
-            continue
-        if re.search(r'[{}[]<>]', name):
-            continue
-        clean_names.append(name)
+        # إزالة الإيموجي فقط، نسي الأسماء العادية
+        name_clean = remove_emojis(name)
+        if name_clean and len(name_clean) >= 1:
+            # إزالة المسافات الزائدة
+            name_clean = name_clean.strip()
+            if name_clean:
+                clean_names.append(name_clean)
     
-    if not clean_names:
-        for name in names_list:
-            name = remove_emojis(name)
-            if name and name.lower() not in forbidden_names:
-                clean_names.append(name)
-                break
+    # إزالة التكرار
+    unique_names = []
+    for name in clean_names:
+        if name not in unique_names:
+            unique_names.append(name)
     
-    return clean_names, len(clean_names)
+    return unique_names, len(unique_names)
 
 
 def get_membership_status_display(status):
@@ -397,9 +381,9 @@ def get_membership_status_display(status):
     status_map = {
         "current_member": "Active", "former_member": "Cancelled / Expired",
         "active": "Active", "current": "Active", "past_due": "Past Due",
-        "cancelled": "Cancelled"
+        "cancelled": "Cancelled", "CURRENT_MEMBER": "Active"
     }
-    normalized = normalize_plan_key(status) if status else "unknown"
+    normalized = str(status).lower() if status else "unknown"
     return status_map.get(normalized, status or "Unknown")
 
 
@@ -721,10 +705,11 @@ def extract_account_info(growth_account):
     profile_names = []
     for p in profiles:
         name = decode_netflix_value(p.get('name'))
-        if name and name.lower() not in ['chrome', 'firefox', 'safari', 'edge', 'opera', 'windows', 'mac', 'linux']:
-            profile_names.append(name)
-    if not profile_names and profiles:
-        profile_names = [decode_netflix_value(p.get('name')) for p in profiles if p.get('name')]
+        if name:
+            # نشيل الإيموجي من أسماء البروفايلات
+            name = remove_emojis(name)
+            if name and len(name) > 1:
+                profile_names.append(name)
     
     info['profiles'] = ", ".join(profile_names) if profile_names else None
     info['profileCount'] = len(profile_names)
@@ -808,6 +793,13 @@ def extract_info(response_text):
     if all_info.get('memberSince'):
         all_info['memberSince'] = clean_text(all_info['memberSince'])
     
+    # تنظيف أسماء البروفايلات من الإيموجي
+    if all_info.get('profiles'):
+        clean_profiles, _ = clean_profile_names(all_info.get('profiles'))
+        if clean_profiles:
+            all_info['profiles'] = ", ".join(clean_profiles)
+            all_info['profileCount'] = len(clean_profiles)
+    
     return all_info if has_any_account_info(all_info) else {}
 
 def normalize_plan_key(plan_name):
@@ -824,13 +816,13 @@ def derive_plan_info(info, is_subscribed):
     if not is_subscribed and not raw_plan:
         return "free", "Free"
     norm = normalize_plan_key(raw_plan) if raw_plan else ""
-    if norm in ("premium", "premium_plan", "premium_extra_member"):
+    if norm in ("premium", "premium_plan", "premium_extra_member", "premium (4k+hdr)"):
         return "premium", "Premium"
-    if norm in ("standard", "estandar", "standard_with_ads"):
+    if norm in ("standard", "estandar", "standard_with_ads", "standard (hd)"):
         return "standard", "Standard"
-    if norm in ("basic", "basico", "essential"):
+    if norm in ("basic", "basico", "essential", "basic (sd)"):
         return "basic", "Basic"
-    if norm in ("mobile", "ponsel", "seluler"):
+    if norm in ("mobile", "ponsel", "seluler", "mobile (sd)"):
         return "mobile", "Mobile"
     streams = info.get("maxStreams")
     if streams:
@@ -847,8 +839,8 @@ def derive_plan_info(info, is_subscribed):
     return "unknown", "Unknown"
 
 def is_subscribed_account(info):
-    status = normalize_plan_key(info.get("membershipStatus"))
-    return status in ["current_member", "active", "current"]
+    status = str(info.get("membershipStatus", "")).upper()
+    return status in ["CURRENT_MEMBER", "ACTIVE", "CURRENT"]
 
 def is_extra_member_account(info):
     plan = str(info.get("localizedPlanName", "")).lower()
@@ -938,16 +930,15 @@ def create_nftoken(cookie_dict, attempts=1):
     return None, "Failed"
 
 def build_nftoken_links(token, mode):
+    """بناء روابط NFToken - نخرج Phone Login"""
     if not token or mode == "false":
         return []
     if mode == "pc":
         return [("PC Login", f"https://netflix.com/?nftoken={token}")]
     if mode == "mobile":
         return [("Phone Login", f"https://netflix.com/unsupported?nftoken={token}")]
-    return [
-        ("PC Login", f"https://netflix.com/?nftoken={token}"),
-        ("Phone Login", f"https://netflix.com/unsupported?nftoken={token}"),
-    ]
+    # الوضع both - نخرج Phone Login ونبقي PC Login فقط
+    return [("PC Login", f"https://netflix.com/?nftoken={token}")]
 
 def get_account_page(session, proxy=None, timeout=15):
     headers = {
@@ -987,9 +978,12 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
     plan_key, plan_label = derive_plan_info(info, is_subscribed)
     status = "Valid Premium Account" if is_subscribed else "Valid Free Account"
     
+    # تنظيف الاسم من الإيموجي
     account_name = decode_netflix_value(info.get("accountOwnerName")) or "Unknown"
+    account_name = remove_emojis(account_name)
     if account_name == "Unknown" or account_name.lower() in ['chrome', 'firefox', 'safari', 'edge', 'opera']:
         account_name = get_name_from_profiles(info)
+        account_name = remove_emojis(account_name)
     
     email = decode_netflix_value(info.get("email")) or "Unknown"
     email = clean_text(email)
@@ -1011,17 +1005,16 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
         payment = "Credit Card"
     
     card = decode_netflix_value(info.get("maskedCard")) or "N/A"
-    card_display = ""
-    if card != "N/A" and card:
-        card_display = f"Card: {card}"
+    card_display = f"Card: {card}" if card != "N/A" and card else ""
     
     phone = decode_netflix_value(info.get("phoneNumber")) or "N/A"
-    phone_verified = "Verified" if format_boolean_label(info.get("phoneVerified")) == "Yes" else "Not Verified"
+    phone = remove_emojis(phone)
+    phone_verified = "Verified" if info.get("phoneVerified") else "Not Verified"
     quality = decode_netflix_value(info.get("videoQuality")) or "Unknown"
     streams = str(info.get("maxStreams") or "Unknown").rstrip("}")
-    hold = "No" if format_boolean_label(info.get("isUserOnHold")) != "Yes" else "Yes"
+    hold = "No"
     extra_member = "Yes" if is_extra_member_account(info) else "No"
-    email_verified = "Yes" if format_boolean_label(info.get("emailVerified")) == "Yes" else "No"
+    email_verified = "Yes" if info.get("emailVerified") else "No"
     
     membership_raw = info.get("membershipStatus") or "Unknown"
     membership_status = get_membership_status_display(membership_raw)
@@ -1029,63 +1022,59 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
     profiles_raw = info.get("profiles") or ""
     clean_profiles, clean_profiles_count = clean_profile_names(profiles_raw)
     
-    final_clean_profiles = []
-    for name in clean_profiles:
-        if 'api' in name.lower() or 'identifier' in name.lower() or 'build' in name.lower():
-            continue
-        if len(name) > 2 and name[0].isupper():
-            final_clean_profiles.append(name)
-        elif len(name) > 3:
-            final_clean_profiles.append(name)
+    # تنظيف أسماء البروفايلات من الإيموجي
+    clean_profiles = [remove_emojis(p) for p in clean_profiles]
+    clean_profiles = [p for p in clean_profiles if p and len(p) > 0]
     
-    if not final_clean_profiles:
-        final_clean_profiles = clean_profiles
-    
-    profiles_display = ", ".join(final_clean_profiles[:15]) if final_clean_profiles else "None"
-    profiles_count = len(final_clean_profiles) if final_clean_profiles else (info.get("profileCount") or 0)
+    profiles_display = ", ".join(clean_profiles[:15]) if clean_profiles else "None"
+    profiles_count = clean_profiles_count
     
     lines = []
-    lines.append("=" * 65)
     lines.append(f"STATUS: {status}")
-    lines.append("=" * 65)
+    lines.append("")
     lines.append("")
     lines.append("ACCOUNT DETAILS")
     lines.append("-" * 40)
-    lines.append(f"Name: {account_name}")
-    lines.append(f"Email: {email}")
-    lines.append(f"Country: {country}")
-    lines.append(f"Language: {language} 🌐")
-    lines.append(f"Plan: {plan}")
+    lines.append(f"👤 Name: {account_name}")
+    lines.append(f"📧 Email: {email}")
+    lines.append(f"🌍 Country: {country}")
+    lines.append(f"🌐 Language: {language}")
+    
+    # إيموجي الخطة حسب النوع
+    plan_emoji = "🎯" if plan_key == "premium" else "📺" if plan_key == "standard" else "📱" if plan_key == "basic" else "🎬"
+    lines.append(f"{plan_emoji} Plan: {plan}")
     
     if is_subscribed:
         if price != "N/A" and price:
-            lines.append(f"Price: {price}")
+            lines.append(f"💰 Price: {price}")
         if member_since != "Unknown":
-            lines.append(f"Member Since: {member_since}")
+            lines.append(f"🗓️ Member Since: {member_since}")
         if next_billing != "Unknown":
-            lines.append(f"Next Billing: {next_billing}")
+            lines.append(f"⏰ Next Billing: {next_billing}")
         if payment and payment != "Unknown":
-            lines.append(f"Payment: {payment}")
+            lines.append(f"💳 Payment: {payment}")
         if card_display:
             lines.append(card_display)
         if phone != "N/A" and phone:
-            lines.append(f"Phone: {phone} ({phone_verified})")
+            lines.append(f"📞 Phone: {phone} ({phone_verified})")
         if quality != "Unknown":
-            lines.append(f"Quality: {quality}")
+            lines.append(f"📺 Quality: {quality}")
         if streams != "Unknown":
-            lines.append(f"Streams: {streams}")
-        lines.append(f"Hold Status: {hold}")
-        lines.append(f"Extra Member: {extra_member}")
-        lines.append(f"Email Verified: {email_verified}")
-        lines.append(f"Membership Status: {membership_status}")
+            lines.append(f"📱 Streams: {streams}")
+        lines.append(f"👥 Profiles: {profiles_count}")
     else:
-        lines.append(f"Email Verified: {email_verified}")
+        lines.append(f"👥 Profiles: {profiles_count}")
     
     lines.append("")
     lines.append("PROFILES")
     lines.append("-" * 40)
-    lines.append(f"Connected Profiles: {profiles_count}")
-    lines.append(f"Profiles: {profiles_display}")
+    if profiles_display and profiles_display != "None":
+        # إضافة ايموجي 👤 قدام كل بروفايل
+        profile_list = profiles_display.split(", ")
+        formatted_profiles = [f"👤 {p}" for p in profile_list]
+        lines.append(f"{', '.join(formatted_profiles)}")
+    else:
+        lines.append("None")
     
     if is_subscribed and nftoken_data and has_usable_nftoken(nftoken_data):
         lines.append("")
@@ -1099,9 +1088,6 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
             lines.append("")
         if nftoken_data.get("expires_at_utc"):
             lines.append(f"Valid Until: {nftoken_data['expires_at_utc']}")
-    
-    lines.append("")
-    lines.append("=" * 65)
     
     return lines, plan_key
 
@@ -1256,7 +1242,8 @@ async def process_single_bundle(update: Update, context: ContextTypes.DEFAULT_TY
         mode = context.user_data.get('mode', 'fullinfo')
         if mode == 'tokenonly':
             email = info.get("email", "Unknown")
-            result = f"Account: {email}\n\nNFToken Login Links:\n---\nPC Login:\n\nhttps://netflix.com/?nftoken={nftoken['token']}\n\nPhone Login:\n\nhttps://netflix.com/unsupported?nftoken={nftoken['token']}"
+            email = remove_emojis(email)
+            result = f"Account: {email}\n\nNFToken Login Links:\n---\nPC Login:\n\nhttps://netflix.com/?nftoken={nftoken['token']}\n\n"
             return result, None, "success" if is_sub else "free"
         else:
             result_lines, plan_key = format_result_beautiful(info, is_sub, bundle.get("netscape_text", ""), cookie_filename, nftoken, config, response_text)
@@ -1266,15 +1253,12 @@ async def process_single_bundle(update: Update, context: ContextTypes.DEFAULT_TY
         partial_info = extract_info_fallback(response_text) if response_text else {}
         if partial_info and has_any_account_info(partial_info):
             is_sub = is_subscribed_account(partial_info)
-            result = f"""⚠️ Partial Data - {cookie_filename}
-
-Status: {'Active' if is_sub else 'Free/Inactive'}
-Country: {partial_info.get('countryOfSignup', 'Unknown')}
-Plan: {partial_info.get('localizedPlanName', 'Unknown')}
-Membership: {partial_info.get('membershipStatus', 'Unknown')}
-
-ℹ️ Limited data. For full details, export cookies as JSON format.
-"""
+            result = f"⚠️ Partial Data - {cookie_filename}\n\n"
+            result += f"Status: {'Active' if is_sub else 'Free/Inactive'}\n"
+            result += f"Country: {partial_info.get('countryOfSignup', 'Unknown')}\n"
+            result += f"Plan: {partial_info.get('localizedPlanName', 'Unknown')}\n"
+            result += f"Membership: {partial_info.get('membershipStatus', 'Unknown')}\n\n"
+            result += "ℹ️ Limited data. For full details, export cookies as JSON format.\n"
             return result, None, "partial"
         else:
             return None, None, f"HTTP {status_code}"
@@ -1313,12 +1297,7 @@ async def handle_single_file(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await update.message.reply_text(f"📦 Found {total_bundles} cookie(s) in this file. Starting check...")
     
     results_by_plan = {
-        "premium": [],
-        "standard": [],
-        "basic": [],
-        "mobile": [],
-        "free": [],
-        "partial": []
+        "premium": [], "standard": [], "basic": [], "mobile": [], "free": [], "partial": []
     }
     
     invalid_count = 0
@@ -1366,6 +1345,7 @@ async def handle_single_file(update: Update, context: ContextTypes.DEFAULT_TYPE)
             elif result_type == "partial":
                 results_by_plan["partial"].append(result)
                 results_by_plan["partial"].append("\n" + "="*65 + "\n")
+                stats['free'] += 1
         else:
             invalid_count += 1
             stats['failed'] += 1
@@ -1439,12 +1419,7 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await file.download_to_memory(zip_data)
     
     results_by_plan = {
-        "premium": [],
-        "standard": [],
-        "basic": [],
-        "mobile": [],
-        "free": [],
-        "partial": []
+        "premium": [], "standard": [], "basic": [], "mobile": [], "free": [], "partial": []
     }
     
     invalid_count = 0
@@ -1515,7 +1490,8 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                         nftoken, _ = create_nftoken(cookies, 1)
                                     if mode == 'tokenonly':
                                         email = info.get("email", "Unknown")
-                                        res = f"Account: {email}\n\nNFToken Login Links:\n---\nPC Login:\n\nhttps://netflix.com/?nftoken={nftoken['token']}\n\nPhone Login:\n\nhttps://netflix.com/unsupported?nftoken={nftoken['token']}"
+                                        email = remove_emojis(email)
+                                        res = f"Account: {email}\n\nNFToken Login Links:\n---\nPC Login:\n\nhttps://netflix.com/?nftoken={nftoken['token']}\n"
                                         plan_key = "unknown"
                                     else:
                                         result_lines, plan_key = format_result_beautiful(info, is_sub, bundle.get("netscape_text", ""), cf, nftoken, config, response_text)
@@ -1538,15 +1514,12 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                 partial_info = extract_info_fallback(response_text) if response_text else {}
                                 if partial_info and has_any_account_info(partial_info):
                                     is_sub = is_subscribed_account(partial_info)
-                                    partial_res = f"""⚠️ Partial Data - {cf}
-
-Status: {'Active' if is_sub else 'Free/Inactive'}
-Country: {partial_info.get('countryOfSignup', 'Unknown')}
-Plan: {partial_info.get('localizedPlanName', 'Unknown')}
-Membership: {partial_info.get('membershipStatus', 'Unknown')}
-
-ℹ️ Limited data. For full details, export cookies as JSON format.
-"""
+                                    partial_res = f"⚠️ Partial Data - {cf}\n\n"
+                                    partial_res += f"Status: {'Active' if is_sub else 'Free/Inactive'}\n"
+                                    partial_res += f"Country: {partial_info.get('countryOfSignup', 'Unknown')}\n"
+                                    partial_res += f"Plan: {partial_info.get('localizedPlanName', 'Unknown')}\n"
+                                    partial_res += f"Membership: {partial_info.get('membershipStatus', 'Unknown')}\n\n"
+                                    partial_res += "ℹ️ Limited data. For full details, export cookies as JSON format.\n"
                                     results_by_plan["partial"].append(partial_res)
                                     results_by_plan["partial"].append("\n" + "="*65 + "\n")
                                     if is_sub:
