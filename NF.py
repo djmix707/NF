@@ -912,7 +912,7 @@ async def bot_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("ℹ️ No active task to cancel")
 
 
-# ==================== PROCESS SINGLE BUNDLE ====================
+# ==================== PROCESS SINGLE BUNDLE (MODIFIED LOGIC) ====================
 
 async def process_single_bundle(update, context, bundle, cookie_filename, status_msg, index, total):
     cookies = bundle.get("cookies", {})
@@ -925,41 +925,68 @@ async def process_single_bundle(update, context, bundle, cookie_filename, status
     config, _ = load_config()
     mode = context.user_data.get('mode', 'fullinfo')
     
-    # إنشاء NFToken
+    # Step 1: Try to get NFToken (required for any valid account)
     nftoken_data, nftoken_err = create_nftoken(cookies, 1)
     
-    if mode == 'fullinfo':
-        # محاولة جلب البيانات
-        session = requests.Session()
-        session.cookies.update(cookies)
-        html, status_code, account_info = get_account_page(session, None, 15)
-        
-        if account_info and has_any_account_info(account_info):
-            is_sub = is_subscribed_account(account_info)
-            result_lines, plan_key = format_result_beautiful(account_info, is_sub, bundle.get("netscape_text", ""), cookie_filename, nftoken_data, config)
-            result = "\n".join(result_lines)
-            return result, plan_key, "success" if is_sub else "free"
-        else:
-            # فشل، نستخدم الـ NFToken فقط
-            email = account_info.get('email', 'Unknown') if account_info else 'Unknown'
-            result = f"⚠️ Could not fetch full data - {cookie_filename}\n\n"
-            result += f"Email: {email}\n\n"
-            result += "NFToken Login Links:\n---\n"
-            if nftoken_data and has_usable_nftoken(nftoken_data):
-                mode_set = get_nftoken_mode(config)
-                for label, link in build_nftoken_links(nftoken_data["token"], mode_set):
-                    result += f"\n{label}:\n\n{link}\n"
-            return result, None, "partial"
+    # If no NFToken and it's not a free account scenario, it's invalid/failed
+    if not nftoken_data or not has_usable_nftoken(nftoken_data):
+        # Even if free, a valid account should generate an NFToken. 
+        # No NFToken usually means cookies are dead or account is locked.
+        # We'll treat as failed.
+        return None, None, f"No valid NFToken: {nftoken_err}"
     
-    else:  # tokenonly mode
-        email = "Unknown"
-        result = f"Account: {email}\n\n"
-        result += "NFToken Login Links:\n---\n"
-        if nftoken_data and has_usable_nftoken(nftoken_data):
-            mode_set = get_nftoken_mode(config)
-            for label, link in build_nftoken_links(nftoken_data["token"], mode_set):
-                result += f"\n{label}:\n\n{link}\n"
-        return result, None, "success"
+    # Step 2: Try to fetch account info (GraphQL / HTML)
+    session = requests.Session()
+    session.cookies.update(cookies)
+    html, status_code, account_info = get_account_page(session, None, 15)
+    
+    # Step 3: Determine if the account is valid (Active subscription or Free)
+    # A valid account must have at least one of: membershipStatus, localizedPlanName, or email
+    is_account_valid = False
+    if account_info and has_any_account_info(account_info):
+        is_account_valid = True
+    elif nftoken_data:
+        # If we have a working NFToken but no account info, it's still a valid account 
+        # (likely a free account or one that requires additional verification)
+        # We'll treat it as valid, but with minimal info.
+        is_account_valid = True
+        if not account_info:
+            account_info = {}
+        # Set a default membership status to avoid errors
+        if not account_info.get('membershipStatus'):
+            account_info['membershipStatus'] = 'ACTIVE'  # Assume active if token works
+    
+    if not is_account_valid:
+        # No NFToken, no account info, it's truly failed/invalid
+        return None, None, "Invalid or expired account"
+    
+    # Step 4: Now classify the account: Premium, Standard, Basic, or Free
+    # Determine if subscribed (has a paid plan)
+    is_sub = is_subscribed_account(account_info) if account_info else False
+    
+    # If we have no plan name but NFToken works, try to infer from NFToken or default to Free
+    if not account_info.get('localizedPlanName'):
+        if nftoken_data:
+            # This is likely a free account (Netflix sometimes gives token to free accounts)
+            # or an account with minimal info. Default to free.
+            account_info['localizedPlanName'] = 'Free Trial'
+            is_sub = False
+    
+    # Generate the plan_key based on available info
+    _, plan_key = derive_plan_info(account_info, is_sub)
+    
+    # Format the beautiful result
+    result_lines, final_plan_key = format_result_beautiful(account_info, is_sub, bundle.get("netscape_text", ""), cookie_filename, nftoken_data, config)
+    result = "\n".join(result_lines)
+    
+    # Determine the final result type based on plan_key and subscription status
+    if is_sub and plan_key in ['premium', 'standard', 'basic', 'mobile']:
+        return result, plan_key, "success"
+    elif not is_sub or plan_key == 'free':
+        return result, "free", "free"  # Changed from "success" to "free" to differentiate
+    else:
+        # Fallback to partial if something is inconsistent
+        return result, None, "partial"
 
 
 # ==================== SINGLE FILE HANDLER ====================
@@ -1011,17 +1038,27 @@ async def handle_single_file(update: Update, context: ContextTypes.DEFAULT_TYPE)
         result, plan_key, result_type = await process_single_bundle(update, context, bundle, fname, status_msg, idx, total_bundles)
         
         if result:
-            if result_type == "success" and plan_key:
+            # Handle based on result_type and plan_key
+            if result_type == "success" and plan_key and plan_key in results_by_plan:
                 results_by_plan[plan_key].append(result)
                 results_by_plan[plan_key].append("\n" + "="*65 + "\n")
-                stats['valid'] += 1
-            elif result_type == "free" and plan_key:
-                results_by_plan[plan_key].append(result)
-                results_by_plan[plan_key].append("\n" + "="*65 + "\n")
+                if plan_key == 'free':
+                    stats['free'] += 1
+                else:
+                    stats['valid'] += 1
+            elif result_type == "free":
+                results_by_plan["free"].append(result)
+                results_by_plan["free"].append("\n" + "="*65 + "\n")
                 stats['free'] += 1
             elif result_type == "partial":
                 results_by_plan["partial"].append(result)
                 results_by_plan["partial"].append("\n" + "="*65 + "\n")
+                stats['free'] += 1  # Partial still counts as a valid account but with limited data
+            else:
+                # Fallback to free
+                results_by_plan["free"].append(result)
+                results_by_plan["free"].append("\n" + "="*65 + "\n")
+                stats['free'] += 1
         else:
             invalid_count += 1
             stats['failed'] += 1
@@ -1136,32 +1173,55 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     for bundle in bundles:
                         cookies = bundle.get("cookies", {})
                         if has_required_netflix_cookies(cookies):
+                            # Use the same logic as process_single_bundle but without status_msg updates
                             nftoken_data, _ = create_nftoken(cookies, 1)
+                            
+                            if not nftoken_data or not has_usable_nftoken(nftoken_data):
+                                invalid_count += 1
+                                stats['failed'] += 1
+                                stats['total'] += 1
+                                continue
                             
                             session = requests.Session()
                             session.cookies.update(cookies)
                             html, status_code, account_info = get_account_page(session, None, 15)
                             
+                            is_account_valid = False
                             if account_info and has_any_account_info(account_info):
-                                is_sub = is_subscribed_account(account_info)
-                                result_lines, plan_key = format_result_beautiful(account_info, is_sub, bundle.get("netscape_text", ""), cf, nftoken_data, config)
-                                res = "\n".join(result_lines)
-                                
-                                if plan_key in results_by_plan:
-                                    results_by_plan[plan_key].append(res)
-                                    results_by_plan[plan_key].append("\n" + "="*65 + "\n")
-                                    
-                                if is_sub:
-                                    stats['valid'] += 1
-                                else:
-                                    stats['free'] += 1
-                            else:
-                                email = account_info.get('email', 'Unknown') if account_info else 'Unknown'
-                                partial_res = f"⚠️ Partial - {cf}\nEmail: {email}\n"
+                                is_account_valid = True
+                            elif nftoken_data:
+                                is_account_valid = True
+                                if not account_info:
+                                    account_info = {}
+                                if not account_info.get('membershipStatus'):
+                                    account_info['membershipStatus'] = 'ACTIVE'
+                            
+                            if not is_account_valid:
+                                invalid_count += 1
+                                stats['failed'] += 1
+                                stats['total'] += 1
+                                continue
+                            
+                            is_sub = is_subscribed_account(account_info) if account_info else False
+                            if not account_info.get('localizedPlanName'):
                                 if nftoken_data:
-                                    partial_res += f"NFToken: https://netflix.com/?nftoken={nftoken_data['token']}\n"
-                                results_by_plan["partial"].append(partial_res)
-                                results_by_plan["partial"].append("\n" + "="*65 + "\n")
+                                    account_info['localizedPlanName'] = 'Free Trial'
+                                    is_sub = False
+                            
+                            _, plan_key = derive_plan_info(account_info, is_sub)
+                            result_lines, final_plan_key = format_result_beautiful(account_info, is_sub, bundle.get("netscape_text", ""), cf, nftoken_data, config)
+                            res = "\n".join(result_lines)
+                            
+                            if plan_key in results_by_plan:
+                                results_by_plan[plan_key].append(res)
+                                results_by_plan[plan_key].append("\n" + "="*65 + "\n")
+                            else:
+                                results_by_plan["free"].append(res)
+                                results_by_plan["free"].append("\n" + "="*65 + "\n")
+                            
+                            if is_sub and plan_key in ['premium', 'standard', 'basic', 'mobile']:
+                                stats['valid'] += 1
+                            else:
                                 stats['free'] += 1
                         else:
                             invalid_count += 1
