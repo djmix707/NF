@@ -943,8 +943,7 @@ def build_nftoken_links(token, mode):
         return [("Phone Login", f"https://netflix.com/unsupported?nftoken={token}")]
     return [
         ("PC Login", f"https://netflix.com/?nftoken={token}"),
-        ("Phone Login", f"https://netflix.com/unsupported?nftoken={token}"),
-    ]
+    ]  # تم إزالة Phone Login
 
 def get_account_page(session, proxy=None, timeout=15):
     headers = {
@@ -975,7 +974,7 @@ def get_account_page(session, proxy=None, timeout=15):
     return resp.text, resp.status_code, extract_info(resp.text)
 
 
-# ==================== RESULT FORMATTING ====================
+# ==================== RESULT FORMATTING (معدل - بدون COOKIE و FILTERS والشريط و Phone Login) ====================
 
 def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename, nftoken_data=None, config=None):
     if config is None:
@@ -1038,9 +1037,9 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
     profiles_count = len(final_clean_profiles) if final_clean_profiles else (info.get("profileCount") or 0)
     
     lines = []
-    lines.append("=" * 65)
+    # تم إزالة الشريط الطويل =================================================================
     lines.append(f"STATUS: {status}")
-    lines.append("=" * 65)
+    lines.append("")
     lines.append("")
     lines.append("ACCOUNT DETAILS")
     lines.append("-" * 40)
@@ -1079,18 +1078,9 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
     lines.append(f"Connected Profiles: {profiles_count}")
     lines.append(f"Profiles: {profiles_display}")
     
-    lines.append("")
-    lines.append("COOKIE")
-    lines.append("-" * 40)
-    cookie_clean = cookie_content.replace('\n', '').replace('\r', '')
-    cookie_clean = re.sub(r'\s+', '', cookie_clean)
-    lines.append(cookie_clean)
+    # تم إزالة جزء COOKIE بالكامل
     
-    lines.append("")
-    lines.append("FILTERS")
-    lines.append("-" * 40)
-    lines.append("Account Filter: Premium Only")
-    lines.append("Mode: Full Information")
+    # تم إزالة جزء FILTERS بالكامل (Account Filter و Mode)
     
     if is_subscribed and nftoken_data and has_usable_nftoken(nftoken_data):
         lines.append("")
@@ -1105,8 +1095,7 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
         if nftoken_data.get("expires_at_utc"):
             lines.append(f"Valid Until: {nftoken_data['expires_at_utc']}")
     
-    lines.append("")
-    lines.append("=" * 65)
+    # تم إزالة الشريط الأخير =================================================================
     
     return lines, plan_key
 
@@ -1261,7 +1250,7 @@ async def process_single_bundle(update: Update, context: ContextTypes.DEFAULT_TY
         mode = context.user_data.get('mode', 'fullinfo')
         if mode == 'tokenonly':
             email = info.get("email", "Unknown")
-            result = f"Account: {email}\n\nNFToken Login Links:\n---\nPC Login:\n\nhttps://netflix.com/?nftoken={nftoken['token']}\n\nPhone Login:\n\nhttps://netflix.com/unsupported?nftoken={nftoken['token']}"
+            result = f"Account: {email}\n\nNFToken Login Links:\n---\nPC Login:\n\nhttps://netflix.com/?nftoken={nftoken['token']}"
             return result, None, "success" if is_sub else "free"
         else:
             result_lines, plan_key = format_result_beautiful(info, is_sub, bundle.get("netscape_text", ""), cookie_filename, nftoken, config)
@@ -1516,7 +1505,7 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                         nftoken, _ = create_nftoken(cookies, 1)
                                     if mode == 'tokenonly':
                                         email = info.get("email", "Unknown")
-                                        res = f"Account: {email}\n\nNFToken Login Links:\n---\nPC Login:\n\nhttps://netflix.com/?nftoken={nftoken['token']}\n\nPhone Login:\n\nhttps://netflix.com/unsupported?nftoken={nftoken['token']}"
+                                        res = f"Account: {email}\n\nNFToken Login Links:\n---\nPC Login:\n\nhttps://netflix.com/?nftoken={nftoken['token']}"
                                         plan_key = "unknown"
                                     else:
                                         result_lines, plan_key = format_result_beautiful(info, is_sub, bundle.get("netscape_text", ""), cf, nftoken, config)
