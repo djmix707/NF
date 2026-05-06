@@ -328,7 +328,6 @@ def get_membership_status_display(status):
     return status_map.get(str(status).lower(), status or "Unknown")
 
 def get_language_from_html(html_content):
-    """استخراج اللغة من HTML"""
     loc_match = re.search(r'data-uia="loc"\s+lang="([^"]+)"', html_content)
     if loc_match:
         lang = loc_match.group(1)
@@ -373,7 +372,6 @@ def create_nftoken(cookie_dict, attempts=1):
     return None, "Failed"
 
 def build_nftoken_links(token, mode):
-    """روابط NFToken - بدون Phone Login"""
     if not token or mode == "false":
         return []
     if mode == "pc":
@@ -696,7 +694,7 @@ def get_name_from_profiles(info):
     return "Unknown"
 
 
-# ==================== RESULT FORMATTING (بدون شريط - بدون COOKIE - بدون FILTERS - بدون Phone Login) ====================
+# ==================== RESULT FORMATTING ====================
 
 def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename, nftoken_data=None, config=None, html_content=""):
     if config is None:
