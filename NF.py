@@ -468,17 +468,15 @@ def get_account_page(session, proxy=None, timeout=15):
             resp = session.get(url, headers=headers, timeout=timeout)
             if resp.status_code == 200:
                 info = extract_from_react_context(resp.text)
-                if info:  # أي بيانات تعتبر صالحة
+                if info:
                     return resp.text, resp.status_code, info
         except:
             continue
     return "", 0, {}
 
 def has_any_account_info(info):
-    """التحقق من وجود بيانات كافية - تم تبسيطها"""
     if not info:
         return False
-    # أي معلومة واحدة تكفي
     return bool(info)
 
 
@@ -650,7 +648,6 @@ def derive_plan_info(info, is_subscribed):
 
 def is_subscribed_account(info):
     status = str(info.get("membershipStatus", "")).upper()
-    # إذا كان فيه localizedPlanName وليس free
     plan = str(info.get("localizedPlanName", "")).lower()
     if plan and plan != "free" and plan != "free trial":
         return True
@@ -912,7 +909,7 @@ async def process_single_bundle(update, context, bundle, cookie_filename, status
     cookies = bundle.get("cookies", {})
     
     if not has_required_netflix_cookies(cookies):
-        return None, None, "Missing NetflixId cookie"
+        return None, None, "failed"
     
     await status_msg.edit_text(f"🔄 [{index}/{total}] Checking account...")
     
@@ -927,23 +924,17 @@ async def process_single_bundle(update, context, bundle, cookie_filename, status
         session.cookies.update(cookies)
         html, status_code, account_info = get_account_page(session, None, 15)
         
-        if account_info:  # أي بيانات تعتبر نجاح
+        if account_info:
             is_sub = is_subscribed_account(account_info)
             result_lines, plan_key = format_result_beautiful(account_info, is_sub, bundle.get("netscape_text", ""), cookie_filename, nftoken_data, config, html)
             result = "\n".join(result_lines)
             return result, plan_key, "success" if is_sub else "free"
         else:
-            email = account_info.get('email', 'Unknown') if account_info else 'Unknown'
-            result = f"⚠️ Could not fetch full data - {cookie_filename}\n\n"
-            result += f"Email: {email}\n\n"
-            result += "NFToken Login Links:\n---\n"
-            if nftoken_data and has_usable_nftoken(nftoken_data):
-                mode_set = get_nftoken_mode(config)
-                for label, link in build_nftoken_links(nftoken_data["token"], mode_set):
-                    result += f"\n{label}:\n\n{link}\n"
-            return result, None, "partial"
+            # فشل تام
+            return None, None, "failed"
     
     else:
+        # tokenonly mode
         email = "Unknown"
         result = f"Account: {email}\n\n"
         result += "NFToken Login Links:\n---\n"
@@ -951,7 +942,7 @@ async def process_single_bundle(update, context, bundle, cookie_filename, status
             mode_set = get_nftoken_mode(config)
             for label, link in build_nftoken_links(nftoken_data["token"], mode_set):
                 result += f"\n{label}:\n\n{link}\n"
-        return result, None, "success"
+        return result, "free", "free"
 
 
 # ==================== SINGLE FILE HANDLER ====================
@@ -987,7 +978,7 @@ async def handle_single_file(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await update.message.reply_text(f"📦 Found {total_bundles} cookie(s). Starting...")
     
     results_by_plan = {
-        "premium": [], "standard": [], "basic": [], "mobile": [], "free": [], "partial": []
+        "premium": [], "standard": [], "basic": [], "mobile": [], "free": []
     }
     
     invalid_count = 0
@@ -1002,19 +993,14 @@ async def handle_single_file(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
         result, plan_key, result_type = await process_single_bundle(update, context, bundle, fname, status_msg, idx, total_bundles)
         
-        if result:
-            if result_type == "success" and plan_key:
+        if result and result_type != "failed":
+            if plan_key in results_by_plan:
                 results_by_plan[plan_key].append(result)
                 results_by_plan[plan_key].append("\n" + "="*65 + "\n")
-                stats['valid'] += 1
-            elif result_type == "free" and plan_key:
-                results_by_plan[plan_key].append(result)
-                results_by_plan[plan_key].append("\n" + "="*65 + "\n")
-                stats['free'] += 1
-            elif result_type == "partial":
-                results_by_plan["partial"].append(result)
-                results_by_plan["partial"].append("\n" + "="*65 + "\n")
-                stats['free'] += 1
+                if result_type == "success":
+                    stats['valid'] += 1
+                else:
+                    stats['free'] += 1
         else:
             invalid_count += 1
             stats['failed'] += 1
@@ -1046,7 +1032,6 @@ Standard: {len(results_by_plan['standard'])}
 Basic: {len(results_by_plan['basic'])}
 Mobile: {len(results_by_plan['mobile'])}
 Free: {len(results_by_plan['free'])}
-Partial: {len(results_by_plan['partial'])}
 Invalid: {invalid_count}
 
 Time: {elapsed:.2f}s | Speed: {spd:.2f} acc/s
@@ -1055,20 +1040,13 @@ Time: {elapsed:.2f}s | Speed: {spd:.2f} acc/s
         await update.message.reply_text(final)
         
         for plan, results in results_by_plan.items():
-            if results and plan != "partial":
+            if results:
                 all_results = "".join(results)
                 buf = BytesIO()
                 buf.write(all_results.encode('utf-8'))
                 buf.seek(0)
                 filename = f"{plan.upper()}_ACCOUNTS.txt"
                 await update.message.reply_document(document=buf, filename=filename, caption=f"📄 {len(results)} {plan.upper()} Accounts")
-        
-        if results_by_plan["partial"]:
-            all_partial = "".join(results_by_plan["partial"])
-            buf = BytesIO()
-            buf.write(all_partial.encode('utf-8'))
-            buf.seek(0)
-            await update.message.reply_document(document=buf, filename="PARTIAL_DATA.txt", caption=f"⚠️ {len(results_by_plan['partial'])} Limited Data")
     
     user_tasks[uid]['active'] = False
 
@@ -1094,7 +1072,7 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await file.download_to_memory(zip_data)
     
     results_by_plan = {
-        "premium": [], "standard": [], "basic": [], "mobile": [], "free": [], "partial": []
+        "premium": [], "standard": [], "basic": [], "mobile": [], "free": []
     }
     
     invalid_count = 0
@@ -1149,13 +1127,9 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                 else:
                                     stats['free'] += 1
                             else:
-                                email = account_info.get('email', 'Unknown') if account_info else 'Unknown'
-                                partial_res = f"⚠️ Partial - {cf}\nEmail: {email}\n"
-                                if nftoken_data:
-                                    partial_res += f"NFToken: https://netflix.com/?nftoken={nftoken_data['token']}\n"
-                                results_by_plan["partial"].append(partial_res)
-                                results_by_plan["partial"].append("\n" + "="*65 + "\n")
-                                stats['free'] += 1
+                                # فشل تام
+                                invalid_count += 1
+                                stats['failed'] += 1
                         else:
                             invalid_count += 1
                             stats['failed'] += 1
@@ -1193,7 +1167,6 @@ Standard: {len(results_by_plan['standard'])}
 Basic: {len(results_by_plan['basic'])}
 Mobile: {len(results_by_plan['mobile'])}
 Free: {len(results_by_plan['free'])}
-Partial: {len(results_by_plan['partial'])}
 Invalid: {invalid_count}
 
 Time: {elapsed:.2f}s | Speed: {spd:.2f} files/s
@@ -1202,19 +1175,12 @@ Time: {elapsed:.2f}s | Speed: {spd:.2f} files/s
             await update.message.reply_text(final)
             
             for plan, results in results_by_plan.items():
-                if results and plan != "partial":
+                if results:
                     all_results = "".join(results)
                     buf = BytesIO()
                     buf.write(all_results.encode('utf-8'))
                     buf.seek(0)
                     await update.message.reply_document(document=buf, filename=f"{plan.upper()}_ACCOUNTS.txt")
-            
-            if results_by_plan["partial"]:
-                all_partial = "".join(results_by_plan["partial"])
-                buf = BytesIO()
-                buf.write(all_partial.encode('utf-8'))
-                buf.seek(0)
-                await update.message.reply_document(document=buf, filename="PARTIAL_DATA.txt")
                     
     except Exception as e:
         await msg.edit_text(f"❌ Error: {str(e)[:200]}")
