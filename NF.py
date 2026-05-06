@@ -109,7 +109,7 @@ performance:
   nftoken_for_free: false
 """
 
-APP_VERSION = "4.6.2"
+APP_VERSION = "4.6.3"
 
 # Folders
 cookies_folder = "cookies"
@@ -369,13 +369,12 @@ def build_nftoken_links(token, mode):
     ]
 
 
-# ==================== EXTRACT FROM REACT CONTEXT (FIXED) ====================
+# ==================== EXTRACT FROM REACT CONTEXT ====================
 
 def extract_from_react_context(html_content):
-    """استخراج البيانات من netflix.reactContext JSON - نسخة محدثة 2026"""
+    """استخراج البيانات من netflix.reactContext JSON"""
     info = {}
     
-    # البحث عن netflix.reactContext
     react_pattern = r'netflix\.reactContext\s*=\s*({.*?});\s*</script'
     match = re.search(react_pattern, html_content, re.DOTALL)
     
@@ -383,7 +382,7 @@ def extract_from_react_context(html_content):
         try:
             data = json.loads(match.group(1))
             
-            # 1. استخراج من userInfo (المصدر الرئيسي للبيانات الأساسية)
+            # 1. userInfo
             user_info = data.get('userInfo', {}).get('data', {})
             if user_info:
                 info['accountOwnerName'] = decode_netflix_value(user_info.get('name'))
@@ -392,7 +391,7 @@ def extract_from_react_context(html_content):
                 info['memberSince'] = decode_netflix_value(user_info.get('memberSince'))
                 info['membershipStatus'] = decode_netflix_value(user_info.get('membershipStatus'))
             
-            # 2. استخراج من signupContext (فيه بيانات الباقة والسعر والتجديد)
+            # 2. signupContext
             signup_context = data.get('signupContext', {}).get('data', {}).get('flow', {}).get('fields', {})
             if signup_context:
                 current_plan = signup_context.get('currentPlan', {}).get('fields', {})
@@ -402,19 +401,17 @@ def extract_from_react_context(html_content):
                     info['videoQuality'] = decode_netflix_value(current_plan.get('videoQuality'))
                     info['planPrice'] = decode_netflix_value(current_plan.get('planPrice'))
                 
-                # تاريخ التجديد القادم
                 next_billing = signup_context.get('nextBillingDate', {}).get('value')
                 if next_billing:
                     info['nextBillingDate'] = next_billing
                 
-                # معلومات الدفع
                 payment_methods = signup_context.get('paymentMethods', {}).get('value', [])
                 if payment_methods and payment_methods[0].get('value'):
                     pm = payment_methods[0]['value']
                     info['maskedCard'] = decode_netflix_value(pm.get('displayText'))
                     info['paymentMethodType'] = 'Credit Card'
             
-            # 3. استخراج من accountInfo (فيه رقم الهاتف)
+            # 3. accountInfo
             account_info = data.get('accountInfo', {}).get('data', {})
             if account_info:
                 if not info.get('accountOwnerName'):
@@ -429,10 +426,9 @@ def extract_from_react_context(html_content):
                 if not info.get('membershipStatus'):
                     info['membershipStatus'] = decode_netflix_value(account_info.get('membershipStatus'))
             
-            # 4. استخراج البروفايلات من graphql
+            # 4. profiles from graphql
             graphql_data = data.get('graphql', {}).get('data', {})
             profiles = []
-            
             for key, value in graphql_data.items():
                 if key.startswith('Profile:'):
                     profile_data = value
@@ -444,20 +440,13 @@ def extract_from_react_context(html_content):
             if profiles:
                 info['profiles'] = ", ".join(profiles)
                 info['profileCount'] = len(profiles)
-                
-                # إذا لم نجد الاسم من قبل، نأخذ أول بروفايل
                 if not info.get('accountOwnerName') and profiles:
                     info['accountOwnerName'] = profiles[0]
-            
-            # 5. استخراج من contentRestrictions (الاسم الاحتياطي)
-            content_restr = data.get('contentRestrictions', {}).get('data', {}).get('profileInfo', {})
-            if content_restr and not info.get('accountOwnerName'):
-                info['accountOwnerName'] = decode_netflix_value(content_restr.get('profileName'))
             
         except Exception as e:
             print(f"React context parse error: {e}")
     
-    # التأكد من وجود membershipStatus
+    # التأكد من وجود البيانات
     if info.get('localizedPlanName') and not info.get('membershipStatus'):
         info['membershipStatus'] = 'CURRENT_MEMBER'
     
@@ -479,17 +468,18 @@ def get_account_page(session, proxy=None, timeout=15):
             resp = session.get(url, headers=headers, timeout=timeout)
             if resp.status_code == 200:
                 info = extract_from_react_context(resp.text)
-                if info and has_any_account_info(info):
+                if info:  # أي بيانات تعتبر صالحة
                     return resp.text, resp.status_code, info
         except:
             continue
     return "", 0, {}
 
 def has_any_account_info(info):
+    """التحقق من وجود بيانات كافية - تم تبسيطها"""
     if not info:
         return False
-    important_fields = ["countryOfSignup", "membershipStatus", "localizedPlanName", "accountOwnerName", "email"]
-    return any(info.get(f) for f in important_fields)
+    # أي معلومة واحدة تكفي
+    return bool(info)
 
 
 # ==================== COOKIE EXTRACTION FUNCTIONS ====================
@@ -660,6 +650,10 @@ def derive_plan_info(info, is_subscribed):
 
 def is_subscribed_account(info):
     status = str(info.get("membershipStatus", "")).upper()
+    # إذا كان فيه localizedPlanName وليس free
+    plan = str(info.get("localizedPlanName", "")).lower()
+    if plan and plan != "free" and plan != "free trial":
+        return True
     return status in ["CURRENT_MEMBER", "ACTIVE", "CURRENT"]
 
 def is_extra_member_account(info):
@@ -696,7 +690,7 @@ def get_name_from_profiles(info):
     return "Unknown"
 
 
-# ==================== RESULT FORMATTING (بدون أي إيموجي) ====================
+# ==================== RESULT FORMATTING ====================
 
 def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename, nftoken_data=None, config=None, html_content=""):
     if config is None:
@@ -720,7 +714,6 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
     price = decode_netflix_value(info.get("planPrice")) or "N/A"
     member_since = format_member_since(info.get("memberSince")) or "Unknown"
     
-    # Next Billing
     next_billing_raw = info.get("nextBillingDate")
     next_billing = "Unknown"
     if next_billing_raw:
@@ -934,7 +927,7 @@ async def process_single_bundle(update, context, bundle, cookie_filename, status
         session.cookies.update(cookies)
         html, status_code, account_info = get_account_page(session, None, 15)
         
-        if account_info and has_any_account_info(account_info):
+        if account_info:  # أي بيانات تعتبر نجاح
             is_sub = is_subscribed_account(account_info)
             result_lines, plan_key = format_result_beautiful(account_info, is_sub, bundle.get("netscape_text", ""), cookie_filename, nftoken_data, config, html)
             result = "\n".join(result_lines)
@@ -1142,7 +1135,7 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             session.cookies.update(cookies)
                             html, status_code, account_info = get_account_page(session, None, 15)
                             
-                            if account_info and has_any_account_info(account_info):
+                            if account_info:
                                 is_sub = is_subscribed_account(account_info)
                                 result_lines, plan_key = format_result_beautiful(account_info, is_sub, bundle.get("netscape_text", ""), cf, nftoken_data, config, html)
                                 res = "\n".join(result_lines)
