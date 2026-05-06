@@ -320,7 +320,8 @@ def clean_profile_names(profiles_raw):
 def get_membership_status_display(status):
     status_map = {
         "current_member": "Active", "former_member": "Cancelled",
-        "active": "Active", "current": "Active", "past_due": "Past Due"
+        "active": "Active", "current": "Active", "past_due": "Past Due",
+        "CURRENT_MEMBER": "Active"
     }
     return status_map.get(str(status).lower(), status or "Unknown")
 
@@ -366,238 +367,131 @@ def build_nftoken_links(token, mode):
     ]
 
 
-# ==================== UPDATED ACCOUNT EXTRACTION (2026) ====================
+# ==================== NEW: EXTRACT FROM GRAPHQL JSON ====================
+
+def extract_from_graphql_json(html_content):
+    """استخراج البيانات من GraphQL JSON داخل الـ HTML"""
+    info = {}
+    
+    # البحث عن الـ GraphQL data في الـ script
+    graphql_pattern = r'"graphql":\s*\{\s*"data":\s*({[^}]+(?:{[^}]*}[^}]*)*})'
+    match = re.search(graphql_pattern, html_content, re.DOTALL)
+    
+    if not match:
+        # محاولة pattern آخر
+        graphql_pattern = r'"data":\s*({[^}]+"growthAccount"[^}]+(?:{[^}]*}[^}]*)*})'
+        match = re.search(graphql_pattern, html_content, re.DOTALL)
+    
+    if match:
+        try:
+            data = json.loads(match.group(1))
+            ga = data.get('growthAccount', {})
+            
+            # استخراج البيانات من growthAccount
+            info['email'] = ga.get('growthLocalizablePhoneNumber', {}).get('rawPhoneNumber', {}).get('phoneNumberDigits', {}).get('value')
+            if not info['email']:
+                # البحث في مكان آخر للإيميل
+                email_match = re.search(r'"emailAddress":"([^"]+)"', html_content)
+                if email_match:
+                    info['email'] = email_match.group(1)
+            
+            # الاسم من currentProfile
+            name_match = re.search(r'"name":"([^"]+)"[^}]*"isKids":false', html_content)
+            if name_match:
+                info['accountOwnerName'] = name_match.group(1)
+            
+            # البلد
+            info['countryOfSignup'] = ga.get('countryOfSignUp', {}).get('code', 'AU')
+            
+            # تاريخ الاشتراك
+            member_since = ga.get('memberSince', '')
+            if member_since:
+                try:
+                    d = datetime.fromisoformat(member_since.replace('Z', ''))
+                    info['memberSince'] = d.strftime("%B %Y")
+                except:
+                    info['memberSince'] = member_since
+            
+            # الباقة
+            current_plan = ga.get('currentPlan', {}).get('plan', {})
+            info['localizedPlanName'] = current_plan.get('name', 'Premium')
+            info['maxStreams'] = 4  # Premium default
+            info['videoQuality'] = 'UHD'
+            
+            # معلومات الدفع
+            payment_methods = ga.get('growthPaymentMethods', [])
+            if payment_methods:
+                info['maskedCard'] = payment_methods[0].get('displayText', '')
+                info['paymentMethodType'] = 'Credit Card'
+            
+            # رقم الهاتف
+            phone_info = ga.get('growthLocalizablePhoneNumber', {})
+            raw_phone = phone_info.get('rawPhoneNumber', {})
+            if raw_phone.get('phoneNumberDigits', {}).get('value'):
+                info['phoneNumber'] = raw_phone['phoneNumberDigits']['value']
+                info['phoneVerified'] = raw_phone.get('isVerified', False)
+            
+            # حالة العضوية
+            info['membershipStatus'] = ga.get('membershipStatus', 'CURRENT_MEMBER')
+            
+            # تاريخ الفاتورة القادمة
+            next_billing = ga.get('nextBillingDate', {})
+            if next_billing.get('localDate'):
+                info['nextBillingDate'] = next_billing['localDate']
+            
+            # السعر
+            if current_plan.get('planPrice'):
+                info['planPrice'] = current_plan.get('planPrice')
+            
+        except Exception as e:
+            print(f"GraphQL parse error: {e}")
+    
+    # استخراج أسماء البروفايلات من الـ GraphQL
+    profiles = []
+    profile_pattern = r'"name":"([^"]+)"[^}]*"isKids":false'
+    for match in re.finditer(profile_pattern, html_content):
+        name = match.group(1)
+        if name and name not in profiles and len(name) > 1:
+            profiles.append(name)
+    
+    if profiles:
+        info['profiles'] = ", ".join(profiles)
+        info['profileCount'] = len(profiles)
+    
+    # إذا لم نجد الاسم من قبل، نأخذ أول بروفايل
+    if not info.get('accountOwnerName') and profiles:
+        info['accountOwnerName'] = profiles[0]
+    
+    return {k: v for k, v in info.items() if v}
+
 
 def get_account_page(session, proxy=None, timeout=15):
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9",
         "Accept-Language": "en-US,en;q=0.5",
-        "Accept-Encoding": "gzip, deflate, br",
-        "Connection": "keep-alive",
     }
     urls = [
         "https://www.netflix.com/YourAccount",
         "https://www.netflix.com/account/membership",
-        "https://www.netflix.com/account/"
     ]
     for url in urls:
         try:
             resp = session.get(url, headers=headers, timeout=timeout)
             if resp.status_code == 200:
-                info = extract_info_from_html(resp.text)
+                # استخراج من GraphQL JSON أولاً
+                info = extract_from_graphql_json(resp.text)
                 if info and has_any_account_info(info):
                     return resp.text, resp.status_code, info
         except:
             continue
     return "", 0, {}
 
-def extract_info_from_html(html_content):
-    """استخراج المعلومات من HTML - نسخة محدثة 2026"""
-    info = {}
-    
-    # ========== 1. البريد الإلكتروني (Email) ==========
-    email_patterns = [
-        r'data-uia="member-email"[^>]*>\s*<[^>]+>\s*([^<]+?)\s*<',
-        r'"email"\s*:\s*"([^@"]+@[^"]+)"',
-        r'"loginId"\s*:\s*"([^@"]+@[^"]+)"',
-        r'<span[^>]*data-uia="member-email"[^>]*>([^<]+)</span>',
-        r'email&lt;/b&gt;:</span>\s*<span[^>]*>([^<]+)</span>',
-    ]
-    for pattern in email_patterns:
-        match = re.search(pattern, html_content, re.IGNORECASE)
-        if match:
-            info['email'] = clean_text(match.group(1))
-            break
-    
-    # ========== 2. اسم الحساب (Name) ==========
-    name_patterns = [
-        r'data-uia="member-name"[^>]*>\s*<[^>]+>\s*([^<]+?)\s*<',
-        r'"ownerName"\s*:\s*"([^"]+)"',
-        r'"accountOwnerName"\s*:\s*"([^"]+)"',
-        r'<span[^>]*data-uia="member-name"[^>]*>([^<]+)</span>',
-        r'Name&lt;/b&gt;:</span>\s*<span[^>]*>([^<]+)</span>',
-    ]
-    for pattern in name_patterns:
-        match = re.search(pattern, html_content, re.IGNORECASE)
-        if match:
-            info['accountOwnerName'] = clean_text(match.group(1))
-            break
-    
-    # ========== 3. خطة الباقة (Plan Name) ==========
-    plan_patterns = [
-        r'data-uia="plan-name"[^>]*>\s*<[^>]+>\s*([^<]+?)\s*<',
-        r'"localizedPlanName"\s*:\s*"([^"]+)"',
-        r'"planName"\s*:\s*"([^"]+)"',
-        r'<span[^>]*data-uia="plan-name"[^>]*>([^<]+)</span>',
-    ]
-    for pattern in plan_patterns:
-        match = re.search(pattern, html_content, re.IGNORECASE)
-        if match:
-            info['localizedPlanName'] = clean_text(match.group(1))
-            break
-    
-    # ========== 4. السعر (Plan Price) ==========
-    price_patterns = [
-        r'data-uia="plan-price"[^>]*>\s*<[^>]+>\s*([^<]+?)\s*<',
-        r'"planPrice"\s*:\s*"([^"]+)"',
-        r'"priceDisplay"\s*:\s*"([^"]+)"',
-        r'<span[^>]*data-uia="plan-price"[^>]*>([^<]+)</span>',
-    ]
-    for pattern in price_patterns:
-        match = re.search(pattern, html_content, re.IGNORECASE)
-        if match:
-            info['planPrice'] = clean_text(match.group(1))
-            break
-    
-    # ========== 5. البلد (Country) ==========
-    country_patterns = [
-        r'data-uia="country-code"[^>]*>\s*<[^>]+>\s*([A-Z]{2})',
-        r'"countryOfSignup"\s*:\s*"([A-Z]{2})"',
-        r'"currentCountry"\s*:\s*"([A-Z]{2})"',
-        r'<span[^>]*data-uia="country-code"[^>]*>([A-Z]{2})</span>',
-    ]
-    for pattern in country_patterns:
-        match = re.search(pattern, html_content, re.IGNORECASE)
-        if match:
-            info['countryOfSignup'] = match.group(1).upper()
-            break
-    
-    # ========== 6. تاريخ الاشتراك (Member Since) ==========
-    since_patterns = [
-        r'data-uia="member-since"[^>]*>\s*<[^>]+>\s*([^<]+?)\s*<',
-        r'"memberSince"\s*:\s*"([^"]+)"',
-        r'"joinDate"\s*:\s*"([^"]+)"',
-        r'<span[^>]*data-uia="member-since"[^>]*>([^<]+)</span>',
-    ]
-    for pattern in since_patterns:
-        match = re.search(pattern, html_content, re.IGNORECASE)
-        if match:
-            info['memberSince'] = clean_text(match.group(1))
-            break
-    
-    # ========== 7. تاريخ التجديد (Next Billing Date) ==========
-    billing_patterns = [
-        r'data-uia="next-bill-date"[^>]*>\s*<[^>]+>\s*([^<]+?)\s*(?:<|\(|$)',
-        r'"nextBillingDate"\s*:\s*"([^"]+)"',
-        r'"billingDate"\s*:\s*"([^"]+)"',
-        r'<span[^>]*data-uia="next-bill-date"[^>]*>([^<]+)</span>',
-    ]
-    for pattern in billing_patterns:
-        match = re.search(pattern, html_content, re.IGNORECASE)
-        if match:
-            raw_date = clean_text(match.group(1))
-            if raw_date and not raw_date.startswith("Your next billing date"):
-                info['nextBillingDate'] = raw_date
-            break
-    
-    # ========== 8. حالة العضوية (Membership Status) ==========
-    status_patterns = [
-        r'data-uia="membership-status"[^>]*>\s*<[^>]+>\s*([^<]+?)\s*<',
-        r'"membershipStatus"\s*:\s*"([^"]+)"',
-        r'<span[^>]*data-uia="membership-status"[^>]*>([^<]+)</span>',
-    ]
-    for pattern in status_patterns:
-        match = re.search(pattern, html_content, re.IGNORECASE)
-        if match:
-            info['membershipStatus'] = clean_text(match.group(1))
-            break
-    
-    # ========== 9. عدد الشاشات (Max Streams) ==========
-    streams_patterns = [
-        r'data-uia="stream-count"[^>]*>\s*<[^>]+>\s*([0-9]+)\s*<',
-        r'"maxStreams"\s*:\s*([0-9]+)',
-        r'<span[^>]*data-uia="stream-count"[^>]*>([0-9]+)</span>',
-    ]
-    for pattern in streams_patterns:
-        match = re.search(pattern, html_content, re.IGNORECASE)
-        if match:
-            info['maxStreams'] = int(match.group(1))
-            break
-    
-    # ========== 10. جودة الفيديو (Video Quality) ==========
-    quality_patterns = [
-        r'data-uia="video-quality"[^>]*>\s*<[^>]+>\s*([^<]+?)\s*<',
-        r'"videoQuality"\s*:\s*"([^"]+)"',
-        r'<span[^>]*data-uia="video-quality"[^>]*>([^<]+)</span>',
-    ]
-    for pattern in quality_patterns:
-        match = re.search(pattern, html_content, re.IGNORECASE)
-        if match:
-            info['videoQuality'] = clean_text(match.group(1))
-            break
-    
-    # ========== 11. طريقة الدفع (Payment Method) ==========
-    payment_patterns = [
-        r'data-uia="payment-method"[^>]*>\s*<[^>]+>\s*([^<]+?)\s*<',
-        r'"paymentMethodType"\s*:\s*"([^"]+)"',
-        r'<span[^>]*data-uia="payment-method"[^>]*>([^<]+)</span>',
-    ]
-    for pattern in payment_patterns:
-        match = re.search(pattern, html_content, re.IGNORECASE)
-        if match:
-            info['paymentMethodType'] = clean_text(match.group(1))
-            break
-    
-    # ========== 12. معلومات الكارد (Card) ==========
-    card_patterns = [
-        r'data-uia="credit-card"[^>]*>\s*<[^>]+>\s*([^<]+?)\s*<',
-        r'"maskedCard"\s*:\s*"([^"]+)"',
-        r'<span[^>]*data-uia="credit-card"[^>]*>([^<]+)</span>',
-    ]
-    for pattern in card_patterns:
-        match = re.search(pattern, html_content, re.IGNORECASE)
-        if match:
-            info['maskedCard'] = clean_text(match.group(1))
-            break
-    
-    # ========== 13. أسماء البروفايلات (Profiles) ==========
-    profile_names = []
-    # الطريقة الأولى: البحث عن عناصر data-uia="profile-name"
-    for match in re.finditer(r'data-uia="profile-name"[^>]*>\s*<[^>]+>\s*([^<]+?)\s*<', html_content, re.IGNORECASE):
-        name = clean_text(match.group(1))
-        if name and len(name) > 1 and name.lower() not in ['add profile', 'manage profiles']:
-            profile_names.append(name)
-    
-    # الطريقة الثانية: البحث في الـ JSON
-    if not profile_names:
-        profiles_match = re.search(r'"profiles"\s*:\s*\[(.*?)\]', html_content, re.DOTALL)
-        if profiles_match:
-            for name_match in re.finditer(r'"name"\s*:\s*"([^"]+)"', profiles_match.group(1)):
-                name = clean_text(name_match.group(1))
-                if name and len(name) > 1:
-                    profile_names.append(name)
-    
-    # إزالة التكرار
-    unique_profiles = []
-    for name in profile_names:
-        if name not in unique_profiles:
-            unique_profiles.append(name)
-    
-    if unique_profiles:
-        info['profiles'] = ", ".join(unique_profiles[:15])
-        info['profileCount'] = len(unique_profiles)
-    
-    # ========== 14. رقم الهاتف (Phone Number) ==========
-    phone_patterns = [
-        r'data-uia="phone-number"[^>]*>\s*<[^>]+>\s*([^<]+?)\s*<',
-        r'"phoneNumber"\s*:\s*"([^"]+)"',
-        r'<span[^>]*data-uia="phone-number"[^>]*>([^<]+)</span>',
-    ]
-    for pattern in phone_patterns:
-        match = re.search(pattern, html_content, re.IGNORECASE)
-        if match:
-            phone = clean_text(match.group(1))
-            if phone and 'add phone' not in phone.lower():
-                info['phoneNumber'] = phone
-            break
-    
-    # ========== 15. حالة البريد الإلكتروني (Email Verified) ==========
-    email_verified_match = re.search(r'data-uia="email-verified"[^>]*>\s*<[^>]+>\s*([^<]+?)\s*<', html_content, re.IGNORECASE)
-    if email_verified_match:
-        info['emailVerified'] = clean_text(email_verified_match.group(1))
-    
-    return {k: v for k, v in info.items() if v}
+def has_any_account_info(info):
+    if not info:
+        return False
+    important_fields = ["countryOfSignup", "membershipStatus", "localizedPlanName", "accountOwnerName", "email"]
+    return any(info.get(f) for f in important_fields)
 
 
 # ==================== COOKIE EXTRACTION FUNCTIONS ====================
@@ -767,8 +661,8 @@ def derive_plan_info(info, is_subscribed):
     return "unknown", "Unknown"
 
 def is_subscribed_account(info):
-    status = str(info.get("membershipStatus", "")).lower()
-    return status in ["current_member", "active", "current"]
+    status = str(info.get("membershipStatus", "")).upper()
+    return status in ["CURRENT_MEMBER", "ACTIVE", "CURRENT"]
 
 def is_extra_member_account(info):
     plan = str(info.get("localizedPlanName", "")).lower()
@@ -790,27 +684,18 @@ def format_member_since(value):
     cleaned = decode_netflix_value(value)
     if not cleaned:
         return "Unknown"
-    try:
-        if re.match(r"\d{4}-\d{2}-\d{2}", cleaned):
-            d = datetime.strptime(cleaned[:10], "%Y-%m-%d")
-            return d.strftime("%B %Y")
-    except:
-        pass
     return cleaned
 
 def get_name_from_profiles(info):
     profiles_raw = info.get("profiles") or ""
     if profiles_raw:
-        clean_names, _ = clean_profile_names(profiles_raw)
+        if isinstance(profiles_raw, str):
+            clean_names, _ = clean_profile_names(profiles_raw)
+        else:
+            clean_names, _ = clean_profile_names(profiles_raw)
         if clean_names:
             return clean_names[0]
     return "Unknown"
-
-def has_any_account_info(info):
-    if not info:
-        return False
-    important_fields = ["countryOfSignup", "membershipStatus", "localizedPlanName", "accountOwnerName", "email"]
-    return any(info.get(f) for f in important_fields)
 
 
 # ==================== RESULT FORMATTING ====================
@@ -842,10 +727,11 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
     card_display = f"Card: {card}" if card != "N/A" and card else ""
     
     phone = decode_netflix_value(info.get("phoneNumber")) or "N/A"
+    phone_verified = "Verified" if info.get("phoneVerified") else "Not Verified"
     quality = decode_netflix_value(info.get("videoQuality")) or "Unknown"
     streams = str(info.get("maxStreams") or "Unknown")
     extra_member = "Yes" if is_extra_member_account(info) else "No"
-    email_verified = decode_netflix_value(info.get("emailVerified")) or "Unknown"
+    email_verified = "Yes" if info.get("emailVerified") else "No"
     
     membership_raw = info.get("membershipStatus") or "Unknown"
     membership_status = get_membership_status_display(membership_raw)
@@ -880,7 +766,7 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
         if card_display:
             lines.append(card_display)
         if phone != "N/A" and phone:
-            lines.append(f"Phone: {phone}")
+            lines.append(f"Phone: {phone} ({phone_verified})")
         if quality != "Unknown":
             lines.append(f"Quality: {quality}")
         if streams != "Unknown":
