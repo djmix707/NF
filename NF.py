@@ -367,100 +367,101 @@ def build_nftoken_links(token, mode):
     ]
 
 
-# ==================== NEW: EXTRACT FROM GRAPHQL JSON ====================
+# ==================== NEW: EXTRACT FROM REACT CONTEXT JSON ====================
 
-def extract_from_graphql_json(html_content):
-    """استخراج البيانات من GraphQL JSON داخل الـ HTML"""
+def extract_from_react_context(html_content):
+    """استخراج البيانات من netflix.reactContext JSON"""
     info = {}
     
-    # البحث عن الـ GraphQL data في الـ script
-    graphql_pattern = r'"graphql":\s*\{\s*"data":\s*({[^}]+(?:{[^}]*}[^}]*)*})'
-    match = re.search(graphql_pattern, html_content, re.DOTALL)
-    
-    if not match:
-        # محاولة pattern آخر
-        graphql_pattern = r'"data":\s*({[^}]+"growthAccount"[^}]+(?:{[^}]*}[^}]*)*})'
-        match = re.search(graphql_pattern, html_content, re.DOTALL)
+    # البحث عن netflix.reactContext
+    react_pattern = r'netflix\.reactContext\s*=\s*({.*?});\s*</script'
+    match = re.search(react_pattern, html_content, re.DOTALL)
     
     if match:
         try:
             data = json.loads(match.group(1))
-            ga = data.get('growthAccount', {})
             
-            # استخراج البيانات من growthAccount
-            info['email'] = ga.get('growthLocalizablePhoneNumber', {}).get('rawPhoneNumber', {}).get('phoneNumberDigits', {}).get('value')
-            if not info['email']:
-                # البحث في مكان آخر للإيميل
-                email_match = re.search(r'"emailAddress":"([^"]+)"', html_content)
-                if email_match:
-                    info['email'] = email_match.group(1)
+            # استخراج من userInfo
+            user_info = data.get('userInfo', {}).get('data', {})
+            if user_info:
+                info['accountOwnerName'] = decode_netflix_value(user_info.get('name'))
+                info['email'] = decode_netflix_value(user_info.get('emailAddress'))
+                info['countryOfSignup'] = decode_netflix_value(user_info.get('countryOfSignup'))
+                info['memberSince'] = decode_netflix_value(user_info.get('memberSince'))
+                info['membershipStatus'] = decode_netflix_value(user_info.get('membershipStatus'))
             
-            # الاسم من currentProfile
-            name_match = re.search(r'"name":"([^"]+)"[^}]*"isKids":false', html_content)
-            if name_match:
-                info['accountOwnerName'] = name_match.group(1)
+            # استخراج من accountInfo
+            account_info = data.get('accountInfo', {}).get('data', {})
+            if account_info:
+                if not info.get('accountOwnerName'):
+                    info['accountOwnerName'] = decode_netflix_value(account_info.get('displayName'))
+                if not info.get('email'):
+                    info['email'] = decode_netflix_value(account_info.get('emailAddress'))
+                info['maxStreams'] = account_info.get('maxStreams')
+                info['phoneNumber'] = normalize_phone_number(account_info.get('phoneNumber'))
+                if not info.get('countryOfSignup'):
+                    info['countryOfSignup'] = decode_netflix_value(account_info.get('country'))
             
-            # البلد
-            info['countryOfSignup'] = ga.get('countryOfSignUp', {}).get('code', 'AU')
+            # استخراج من signupContext
+            signup_context = data.get('signupContext', {}).get('data', {}).get('flow', {}).get('fields', {})
+            if signup_context:
+                current_plan = signup_context.get('currentPlan', {}).get('fields', {})
+                if current_plan:
+                    info['localizedPlanName'] = decode_netflix_value(current_plan.get('localizedPlanName'))
+                    info['maxStreams'] = current_plan.get('maxStreams') or info.get('maxStreams')
+                    info['videoQuality'] = decode_netflix_value(current_plan.get('videoQuality'))
+                    info['planPrice'] = decode_netflix_value(current_plan.get('planPrice'))
+                
+                next_billing = signup_context.get('nextBillingDate', {}).get('value')
+                if next_billing:
+                    info['nextBillingDate'] = next_billing
+                
+                payment_methods = signup_context.get('paymentMethods', {}).get('value', [])
+                if payment_methods and payment_methods[0].get('value'):
+                    pm = payment_methods[0]['value']
+                    info['maskedCard'] = decode_netflix_value(pm.get('displayText'))
+                    info['paymentMethodType'] = 'Credit Card'
             
-            # تاريخ الاشتراك
-            member_since = ga.get('memberSince', '')
-            if member_since:
-                try:
-                    d = datetime.fromisoformat(member_since.replace('Z', ''))
-                    info['memberSince'] = d.strftime("%B %Y")
-                except:
-                    info['memberSince'] = member_since
+            # استخراج البروفايلات من graphql
+            graphql_data = data.get('graphql', {}).get('data', {})
+            profiles = []
             
-            # الباقة
-            current_plan = ga.get('currentPlan', {}).get('plan', {})
-            info['localizedPlanName'] = current_plan.get('name', 'Premium')
-            info['maxStreams'] = 4  # Premium default
-            info['videoQuality'] = 'UHD'
+            # البحث عن البروفايلات في graphql
+            for key, value in graphql_data.items():
+                if key.startswith('Profile:'):
+                    profile_data = value
+                    if isinstance(profile_data, dict):
+                        name = profile_data.get('name')
+                        if name and name not in profiles and len(name) > 1:
+                            profiles.append(name)
             
-            # معلومات الدفع
-            payment_methods = ga.get('growthPaymentMethods', [])
-            if payment_methods:
-                info['maskedCard'] = payment_methods[0].get('displayText', '')
-                info['paymentMethodType'] = 'Credit Card'
+            if profiles:
+                info['profiles'] = ", ".join(profiles)
+                info['profileCount'] = len(profiles)
+                
+                # إذا لم نجد الاسم من قبل، نأخذ أول بروفايل
+                if not info.get('accountOwnerName') and profiles:
+                    info['accountOwnerName'] = profiles[0]
             
-            # رقم الهاتف
-            phone_info = ga.get('growthLocalizablePhoneNumber', {})
-            raw_phone = phone_info.get('rawPhoneNumber', {})
-            if raw_phone.get('phoneNumberDigits', {}).get('value'):
-                info['phoneNumber'] = raw_phone['phoneNumberDigits']['value']
-                info['phoneVerified'] = raw_phone.get('isVerified', False)
-            
-            # حالة العضوية
-            info['membershipStatus'] = ga.get('membershipStatus', 'CURRENT_MEMBER')
-            
-            # تاريخ الفاتورة القادمة
-            next_billing = ga.get('nextBillingDate', {})
-            if next_billing.get('localDate'):
-                info['nextBillingDate'] = next_billing['localDate']
-            
-            # السعر
-            if current_plan.get('planPrice'):
-                info['planPrice'] = current_plan.get('planPrice')
+            # استخراج من contentRestrictions
+            content_restr = data.get('contentRestrictions', {}).get('data', {}).get('profileInfo', {})
+            if content_restr and not info.get('accountOwnerName'):
+                info['accountOwnerName'] = decode_netflix_value(content_restr.get('profileName'))
             
         except Exception as e:
-            print(f"GraphQL parse error: {e}")
+            print(f"React context parse error: {e}")
     
-    # استخراج أسماء البروفايلات من الـ GraphQL
-    profiles = []
-    profile_pattern = r'"name":"([^"]+)"[^}]*"isKids":false'
-    for match in re.finditer(profile_pattern, html_content):
-        name = match.group(1)
-        if name and name not in profiles and len(name) > 1:
-            profiles.append(name)
+    # إذا لم نجد الإيميل، نبحث في HTML
+    if not info.get('email'):
+        email_match = re.search(r'"emailAddress":"([^"]+)"', html_content)
+        if email_match:
+            info['email'] = email_match.group(1)
     
-    if profiles:
-        info['profiles'] = ", ".join(profiles)
-        info['profileCount'] = len(profiles)
-    
-    # إذا لم نجد الاسم من قبل، نأخذ أول بروفايل
-    if not info.get('accountOwnerName') and profiles:
-        info['accountOwnerName'] = profiles[0]
+    # إذا لم نجد الاسم، نبحث في HTML
+    if not info.get('accountOwnerName'):
+        name_match = re.search(r'"displayName":"([^"]+)"', html_content)
+        if name_match:
+            info['accountOwnerName'] = name_match.group(1)
     
     return {k: v for k, v in info.items() if v}
 
@@ -471,7 +472,6 @@ def get_account_page(session, proxy=None, timeout=15):
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9",
         "Accept-Language": "en-US,en;q=0.5",
     }
-    # الروابط الصحيحة المحدثة
     urls = [
         "https://www.netflix.com/account/",
         "https://www.netflix.com/account/membership",
@@ -480,8 +480,8 @@ def get_account_page(session, proxy=None, timeout=15):
         try:
             resp = session.get(url, headers=headers, timeout=timeout)
             if resp.status_code == 200:
-                # استخراج من GraphQL JSON أولاً
-                info = extract_from_graphql_json(resp.text)
+                # استخراج من React Context
+                info = extract_from_react_context(resp.text)
                 if info and has_any_account_info(info):
                     return resp.text, resp.status_code, info
         except:
