@@ -229,17 +229,16 @@ def remove_emojis(text):
     """إزالة الإيموجي من النص"""
     if not text:
         return text
-    # استخدام regex لإزالة الإيموجي والرموز الخاصة
     emoji_pattern = re.compile(
         "["
-        u"\U0001F600-\U0001F64F"  # emoticons
-        u"\U0001F300-\U0001F5FF"  # symbols & pictographs
-        u"\U0001F680-\U0001F6FF"  # transport & map symbols
-        u"\U0001F1E0-\U0001F1FF"  # flags (iOS)
+        u"\U0001F600-\U0001F64F"
+        u"\U0001F300-\U0001F5FF"
+        u"\U0001F680-\U0001F6FF"
+        u"\U0001F1E0-\U0001F1FF"
         u"\U00002702-\U000027B0"
         u"\U000024C2-\U0001F251"
-        u"\U0001F900-\U0001F9FF"  # Supplemental Symbols and Pictographs
-        u"\U0001FA70-\U0001FAFF"  # Symbols and Pictographs Extended-A
+        u"\U0001F900-\U0001F9FF"
+        u"\U0001FA70-\U0001FAFF"
         u"\U00002600-\U00002BEE"
         u"\uD83C[\uDF00-\uDFFF]"
         u"\uD83D[\uDC00-\uDE4F]"
@@ -326,50 +325,18 @@ def normalize_phone_number(phone, country_code=None):
 def get_full_country_name(country_code):
     """تحويل كود الدولة لاسم كامل"""
     countries = {
-        "ZA": "South Africa",
-        "EG": "Egypt",
-        "SA": "Saudi Arabia",
-        "AE": "United Arab Emirates",
-        "US": "United States",
-        "GB": "United Kingdom",
-        "IN": "India",
-        "PK": "Pakistan",
-        "RO": "Romania",
-        "ID": "Indonesia",
-        "MY": "Malaysia",
-        "SG": "Singapore",
-        "PH": "Philippines",
-        "TH": "Thailand",
-        "VN": "Vietnam",
-        "BR": "Brazil",
-        "MX": "Mexico",
-        "CA": "Canada",
-        "AU": "Australia",
-        "DE": "Germany",
-        "FR": "France",
-        "ES": "Spain",
-        "IT": "Italy",
-        "TR": "Turkey",
-        "NL": "Netherlands",
-        "SE": "Sweden",
-        "NO": "Norway",
-        "DK": "Denmark",
-        "FI": "Finland",
-        "PL": "Poland",
-        "GR": "Greece",
-        "PT": "Portugal",
-        "IE": "Ireland",
-        "BE": "Belgium",
-        "CH": "Switzerland",
-        "AT": "Austria",
-        "CZ": "Czech Republic",
-        "HU": "Hungary",
-        "IL": "Israel",
-        "JP": "Japan",
-        "KR": "South Korea",
-        "CN": "China",
-        "TW": "Taiwan",
-        "HK": "Hong Kong",
+        "ZA": "South Africa", "EG": "Egypt", "SA": "Saudi Arabia",
+        "AE": "United Arab Emirates", "US": "United States", "GB": "United Kingdom",
+        "IN": "India", "PK": "Pakistan", "RO": "Romania", "ID": "Indonesia",
+        "MY": "Malaysia", "SG": "Singapore", "PH": "Philippines", "TH": "Thailand",
+        "VN": "Vietnam", "BR": "Brazil", "MX": "Mexico", "CA": "Canada",
+        "AU": "Australia", "DE": "Germany", "FR": "France", "ES": "Spain",
+        "IT": "Italy", "TR": "Turkey", "NL": "Netherlands", "SE": "Sweden",
+        "NO": "Norway", "DK": "Denmark", "FI": "Finland", "PL": "Poland",
+        "GR": "Greece", "PT": "Portugal", "IE": "Ireland", "BE": "Belgium",
+        "CH": "Switzerland", "AT": "Austria", "CZ": "Czech Republic", "HU": "Hungary",
+        "IL": "Israel", "JP": "Japan", "KR": "South Korea", "CN": "China",
+        "TW": "Taiwan", "HK": "Hong Kong",
     }
     return countries.get(country_code.upper(), country_code)
 
@@ -396,18 +363,12 @@ def clean_profile_names(profiles_raw):
     
     clean_names = []
     for name in names_list:
-        # إزالة الإيموجي من الاسم
         name = remove_emojis(name)
         if not name or len(name) < 2:
             continue
-            
         name_lower = name.lower()
-        
         if name_lower in forbidden_names:
             continue
-        if len(name) < 2:
-            continue
-        
         skip = False
         for forbidden in forbidden_names:
             if forbidden in name_lower:
@@ -415,12 +376,10 @@ def clean_profile_names(profiles_raw):
                 break
         if skip:
             continue
-        
         if re.match(r'^\d+$', name):
             continue
         if re.search(r'[{}[]<>]', name):
             continue
-            
         clean_names.append(name)
     
     if not clean_names:
@@ -436,11 +395,8 @@ def clean_profile_names(profiles_raw):
 def get_membership_status_display(status):
     """تحويل حالة العضوية لنص مفهوم"""
     status_map = {
-        "current_member": "Active",
-        "former_member": "Cancelled / Expired",
-        "active": "Active",
-        "current": "Active",
-        "past_due": "Past Due",
+        "current_member": "Active", "former_member": "Cancelled / Expired",
+        "active": "Active", "current": "Active", "past_due": "Past Due",
         "cancelled": "Cancelled"
     }
     normalized = normalize_plan_key(status) if status else "unknown"
@@ -1130,19 +1086,6 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
     lines.append("-" * 40)
     lines.append(f"Connected Profiles: {profiles_count}")
     lines.append(f"Profiles: {profiles_display}")
-    
-    lines.append("")
-    lines.append("COOKIE")
-    lines.append("-" * 40)
-    cookie_clean = cookie_content.replace('\n', '').replace('\r', '')
-    cookie_clean = re.sub(r'\s+', '', cookie_clean)
-    lines.append(cookie_clean[:200] + "..." if len(cookie_clean) > 200 else cookie_clean)
-    
-    lines.append("")
-    lines.append("FILTERS")
-    lines.append("-" * 40)
-    lines.append("Account Filter: Premium Only")
-    lines.append("Mode: Full Information")
     
     if is_subscribed and nftoken_data and has_usable_nftoken(nftoken_data):
         lines.append("")
