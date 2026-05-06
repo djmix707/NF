@@ -114,7 +114,7 @@ performance:
   nftoken_for_free: false
 """
 
-APP_VERSION = "4.5.0"
+APP_VERSION = "4.5.1"
 
 # Folders
 cookies_folder = "cookies"
@@ -905,6 +905,35 @@ def format_country_with_flag(country_value):
     flag = country_code_to_flag(country_code)
     return f"{country_name} {flag}".strip()
 
+def get_language_from_html(html_content):
+    """استخراج اللغة من HTML"""
+    # محاولة استخراج اللغة من data-uia="loc"
+    loc_match = re.search(r'data-uia="loc"\s+lang="([^"]+)"', html_content)
+    if loc_match:
+        lang = loc_match.group(1)
+        # تحويل كود اللغة إلى اسم
+        lang_names = {
+            "en": "English", "en-AU": "English", "en-US": "English", "en-GB": "English",
+            "ar": "العربية", "es": "Español", "fr": "Français", "de": "Deutsch",
+            "it": "Italiano", "pt": "Português", "pt-BR": "Português", "nl": "Nederlands",
+            "pl": "Polski", "tr": "Türkçe", "ru": "Русский", "ja": "日本語",
+            "ko": "한국어", "zh": "中文", "hi": "हिन्दी", "sv": "Svenska",
+            "da": "Dansk", "no": "Norsk", "fi": "Suomi", "id": "Indonesia",
+            "th": "ไทย", "vi": "Tiếng Việt", "he": "עברית", "ro": "Română",
+            "el": "Ελληνικά", "cs": "Čeština", "hu": "Magyar", "hr": "Hrvatski"
+        }
+        # استخراج اللغة الأساسية (قبل الـ -)
+        base_lang = lang.split('-')[0]
+        return lang_names.get(lang, lang_names.get(base_lang, lang))
+    
+    # محاولة استخراج من accept-language
+    accept_match = re.search(r'"accept-language":"([^"]+)"', html_content)
+    if accept_match:
+        lang = accept_match.group(1).split(',')[0].split(';')[0]
+        return lang
+    
+    return "Unknown"
+
 def get_nftoken_mode(config):
     val = config.get("nftoken", "both")
     if isinstance(val, bool):
@@ -977,7 +1006,7 @@ def get_account_page(session, proxy=None, timeout=15):
 
 # ==================== RESULT FORMATTING ====================
 
-def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename, nftoken_data=None, config=None):
+def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename, nftoken_data=None, config=None, html_content=""):
     if config is None:
         config, _ = load_config()
     
@@ -993,6 +1022,11 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
     
     country_raw = decode_netflix_value(info.get("countryOfSignup")) or "Unknown"
     country = format_country_with_flag(country_raw)
+    
+    # استخراج اللغة
+    language = get_language_from_html(html_content)
+    if language == "Unknown":
+        language = "English"  # اللغة الافتراضية
     
     plan = plan_label
     price = decode_netflix_value(info.get("planPrice")) or "N/A"
@@ -1047,6 +1081,7 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
     lines.append(f"Name: {account_name}")
     lines.append(f"Email: {email}")
     lines.append(f"Country: {country}")
+    lines.append(f"Language: {language} 🌐")
     lines.append(f"Plan: {plan}")
     
     if is_subscribed:
@@ -1264,7 +1299,7 @@ async def process_single_bundle(update: Update, context: ContextTypes.DEFAULT_TY
             result = f"Account: {email}\n\nNFToken Login Links:\n---\nPC Login:\n\nhttps://netflix.com/?nftoken={nftoken['token']}\n\nPhone Login:\n\nhttps://netflix.com/unsupported?nftoken={nftoken['token']}"
             return result, None, "success" if is_sub else "free"
         else:
-            result_lines, plan_key = format_result_beautiful(info, is_sub, bundle.get("netscape_text", ""), cookie_filename, nftoken, config)
+            result_lines, plan_key = format_result_beautiful(info, is_sub, bundle.get("netscape_text", ""), cookie_filename, nftoken, config, response_text)
             result = "\n".join(result_lines)
             return result, plan_key, "success" if is_sub else "free"
     else:
@@ -1523,7 +1558,7 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                         res = f"Account: {email}\n\nNFToken Login Links:\n---\nPC Login:\n\nhttps://netflix.com/?nftoken={nftoken['token']}\n\nPhone Login:\n\nhttps://netflix.com/unsupported?nftoken={nftoken['token']}"
                                         plan_key = "unknown"
                                     else:
-                                        result_lines, plan_key = format_result_beautiful(info, is_sub, bundle.get("netscape_text", ""), cf, nftoken, config)
+                                        result_lines, plan_key = format_result_beautiful(info, is_sub, bundle.get("netscape_text", ""), cf, nftoken, config, response_text)
                                         res = "\n".join(result_lines)
                                     
                                     if plan_key in results_by_plan:
@@ -1534,7 +1569,7 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                         results_by_plan["premium"].append("\n" + "="*65 + "\n")
                                     stats['valid'] += 1
                                 else:
-                                    result_lines, plan_key = format_result_beautiful(info, is_sub, bundle.get("netscape_text", ""), cf, None, config)
+                                    result_lines, plan_key = format_result_beautiful(info, is_sub, bundle.get("netscape_text", ""), cf, None, config, response_text)
                                     res = "\n".join(result_lines)
                                     results_by_plan["free"].append(res)
                                     results_by_plan["free"].append("\n" + "="*65 + "\n")
