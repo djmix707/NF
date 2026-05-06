@@ -321,9 +321,13 @@ def get_membership_status_display(status):
     status_map = {
         "current_member": "Active", "former_member": "Cancelled",
         "active": "Active", "current": "Active", "past_due": "Past Due",
-        "CURRENT_MEMBER": "Active"
+        "CURRENT_MEMBER": "Active", "CURRENT": "Active"
     }
-    return status_map.get(str(status).lower(), status or "Unknown")
+    normalized = str(status).upper() if status else "UNKNOWN"
+    for key, val in status_map.items():
+        if key.upper() == normalized:
+            return val
+    return status or "Unknown"
 
 def get_nftoken_mode(config):
     val = config.get("nftoken", "both")
@@ -367,7 +371,7 @@ def build_nftoken_links(token, mode):
     ]
 
 
-# ==================== NEW: EXTRACT FROM REACT CONTEXT JSON ====================
+# ==================== EXTRACT FROM REACT CONTEXT JSON ====================
 
 def extract_from_react_context(html_content):
     """استخراج البيانات من netflix.reactContext JSON"""
@@ -401,6 +405,8 @@ def extract_from_react_context(html_content):
                 info['phoneNumber'] = normalize_phone_number(account_info.get('phoneNumber'))
                 if not info.get('countryOfSignup'):
                     info['countryOfSignup'] = decode_netflix_value(account_info.get('country'))
+                if not info.get('membershipStatus'):
+                    info['membershipStatus'] = decode_netflix_value(account_info.get('membershipStatus'))
             
             # استخراج من signupContext
             signup_context = data.get('signupContext', {}).get('data', {}).get('flow', {}).get('fields', {})
@@ -627,7 +633,7 @@ def extract_netflix_cookie_bundles(content):
     return []
 
 
-# ==================== ACCOUNT INFO FUNCTIONS ====================
+# ==================== ACCOUNT INFO FUNCTIONS (FIXED) ====================
 
 def normalize_plan_key(plan_name):
     if not plan_name:
@@ -635,18 +641,27 @@ def normalize_plan_key(plan_name):
     return re.sub(r"[^\w]+", "_", str(plan_name).lower()).strip("_")
 
 def derive_plan_info(info, is_subscribed):
+    """تحديد خطة الحساب بناءً على البيانات المتاحة"""
     raw_plan = decode_netflix_value(info.get("localizedPlanName"))
-    if not is_subscribed and not raw_plan:
+    
+    # إذا كان الحساب غير مشترك (membershipStatus ليس CURRENT_MEMBER)
+    # ولكن قد يكون فيه localizedPlanName (للحسابات المجانية)
+    if not is_subscribed and (not raw_plan or raw_plan.lower() == 'free'):
         return "free", "Free"
+    
+    # تحديد الخطة من الاسم
     norm = normalize_plan_key(raw_plan) if raw_plan else ""
-    if norm in ("premium", "premium_plan", "premium_extra_member"):
+    
+    if norm in ("premium", "premium_plan", "premium_extra_member", "premium (4k+hdr)"):
         return "premium", "Premium"
-    if norm in ("standard", "estandar", "standard_with_ads"):
+    if norm in ("standard", "estandar", "standard_with_ads", "standard (hd)"):
         return "standard", "Standard"
-    if norm in ("basic", "basico", "essential"):
+    if norm in ("basic", "basico", "essential", "basic (sd)"):
         return "basic", "Basic"
-    if norm in ("mobile", "ponsel", "seluler"):
+    if norm in ("mobile", "ponsel", "seluler", "mobile (sd)"):
         return "mobile", "Mobile"
+    
+    # تحديد الخطة من عدد الشاشات
     streams = info.get("maxStreams")
     if streams:
         try:
@@ -659,11 +674,29 @@ def derive_plan_info(info, is_subscribed):
                 return "basic", "Basic"
         except:
             pass
+    
     return "unknown", "Unknown"
 
 def is_subscribed_account(info):
+    """تحديد إذا كان الحساب مشترك (مدفوع)"""
     status = str(info.get("membershipStatus", "")).upper()
-    return status in ["CURRENT_MEMBER", "ACTIVE", "CURRENT"]
+    # CURRENT_MEMBER = مشترك نشط
+    # ACTIVE = نشط
+    # CURRENT = نشط
+    if status in ["CURRENT_MEMBER", "ACTIVE", "CURRENT"]:
+        return True
+    
+    # إذا كان فيه localizedPlanName وليس Free
+    plan = str(info.get("localizedPlanName", "")).lower()
+    if plan and plan != "free" and plan != "free trial":
+        return True
+    
+    # إذا كان فيه planPrice وليس 0
+    price = info.get("planPrice")
+    if price and price != "0" and price != "$0.00" and price != "N/A":
+        return True
+    
+    return False
 
 def is_extra_member_account(info):
     plan = str(info.get("localizedPlanName", "")).lower()
@@ -709,7 +742,7 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
     status = "Valid Premium Account" if is_subscribed else "Valid Free Account"
     
     account_name = decode_netflix_value(info.get("accountOwnerName")) or "Unknown"
-    if account_name == "Unknown":
+    if account_name == "Unknown" or account_name.lower() in ['chrome', 'firefox', 'safari', 'edge', 'opera']:
         account_name = get_name_from_profiles(info)
     
     email = decode_netflix_value(info.get("email")) or "Unknown"
