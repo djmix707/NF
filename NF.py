@@ -222,6 +222,11 @@ def clean_text(text):
     text = text.replace('\\x40', '@')
     text = text.replace('\\u00A0', ' ')
     text = text.replace('&nbsp;', ' ')
+    # تحويل Unicode escapes مثل \u00F1 إلى حروف حقيقية
+    try:
+        text = text.encode('utf-8').decode('unicode-escape')
+    except:
+        pass
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
@@ -387,6 +392,9 @@ def extract_account_info_from_html(html_content):
     """استخراج البيانات من HTML بطريقة مبسطة"""
     info = {}
     
+    # تحويل النص أولاً لتصحيح Unicode
+    html_content = clean_text(html_content)
+    
     # 1. استخراج الإيميل
     email_match = re.search(r'"emailAddress":"([^"]+)"', html_content)
     if email_match:
@@ -422,6 +430,12 @@ def extract_account_info_from_html(html_content):
     if billing_match:
         info['nextBillingDate'] = billing_match.group(1)
     
+    # بديل لتاريخ التجديد
+    if not info.get('nextBillingDate'):
+        billing_match2 = re.search(r'"nextBillingDate":\{"date":"([^"]+)"', html_content)
+        if billing_match2:
+            info['nextBillingDate'] = billing_match2.group(1)
+    
     # 8. استخراج حالة العضوية
     status_match = re.search(r'"membershipStatus":"([^"]+)"', html_content)
     if status_match:
@@ -432,12 +446,18 @@ def extract_account_info_from_html(html_content):
     if phone_match:
         info['phoneNumber'] = phone_match.group(1)
     
+    # بديل لرقم الهاتف
+    if not info.get('phoneNumber'):
+        phone_match2 = re.search(r'"phoneNumberDigits":\{"value":"([^"]+)"', html_content)
+        if phone_match2:
+            info['phoneNumber'] = phone_match2.group(1)
+    
     # 10. استخراج آخر 4 أرقام من الكارد
     card_match = re.search(r'"maskedCard":"([^"]+)"', html_content)
     if card_match:
         info['maskedCard'] = card_match.group(1)
     
-    # 11. استخراج أسماء البروفايلات من graphql
+    # 11. استخراج أسماء البروفايلات
     profiles = []
     profile_pattern = r'"name":"([^"]+)"[^}]*"isKids":(?:false|true)'
     for match in re.finditer(profile_pattern, html_content):
@@ -448,6 +468,11 @@ def extract_account_info_from_html(html_content):
     if profiles:
         info['profiles'] = ", ".join(profiles[:10])
         info['profileCount'] = len(profiles)
+    
+    # 12. استخراج تاريخ الاشتراك
+    member_since_match = re.search(r'"memberSince":"([^"]+)"', html_content)
+    if member_since_match:
+        info['memberSince'] = member_since_match.group(1)
     
     return info
 
@@ -723,7 +748,13 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
     card_display = f"Card: {card}" if card != "N/A" and card else ""
     
     phone = decode_netflix_value(info.get("phoneNumber")) or "N/A"
-    phone_verified = "Verified" if info.get("phoneVerified") else "Not Verified"
+    if phone != "N/A" and phone and len(str(phone)) > 5:
+        phone = normalize_phone_number(phone)
+        phone_verified = "Verified" if info.get("phoneVerified") else ""
+    else:
+        phone = "N/A"
+        phone_verified = ""
+    
     quality = decode_netflix_value(info.get("videoQuality")) or "Unknown"
     streams = str(info.get("maxStreams") or "Unknown").rstrip("}")
     email_verified = "Yes" if info.get("emailVerified") else "No"
@@ -761,7 +792,10 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
         if card_display:
             lines.append(card_display)
         if phone != "N/A" and phone:
-            lines.append(f"Phone: {phone} ({phone_verified})")
+            if phone_verified:
+                lines.append(f"Phone: {phone} ({phone_verified})")
+            else:
+                lines.append(f"Phone: {phone}")
         if quality != "Unknown":
             lines.append(f"Quality: {quality}")
         if streams != "Unknown":
