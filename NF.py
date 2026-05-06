@@ -225,18 +225,32 @@ def write_text_file_safely(path, content):
     with open(path, "w", encoding="utf-8") as f:
         f.write(content)
 
-def decode_unicode_escape(text):
-    """تحويل \uXXXX إلى الإيموجي الحقيقي"""
+def remove_emojis(text):
+    """إزالة الإيموجي من النص"""
     if not text:
         return text
-    try:
-        result = re.sub(r'\\u[0-9a-fA-F]{4}', lambda m: m.group(0).encode().decode('unicode-escape'), text)
-        return result
-    except:
-        return text
+    # استخدام regex لإزالة الإيموجي والرموز الخاصة
+    emoji_pattern = re.compile(
+        "["
+        u"\U0001F600-\U0001F64F"  # emoticons
+        u"\U0001F300-\U0001F5FF"  # symbols & pictographs
+        u"\U0001F680-\U0001F6FF"  # transport & map symbols
+        u"\U0001F1E0-\U0001F1FF"  # flags (iOS)
+        u"\U00002702-\U000027B0"
+        u"\U000024C2-\U0001F251"
+        u"\U0001F900-\U0001F9FF"  # Supplemental Symbols and Pictographs
+        u"\U0001FA70-\U0001FAFF"  # Symbols and Pictographs Extended-A
+        u"\U00002600-\U00002BEE"
+        u"\uD83C[\uDF00-\uDFFF]"
+        u"\uD83D[\uDC00-\uDE4F]"
+        u"\uD83D[\uDE80-\uDEFF]"
+        "]+",
+        flags=re.UNICODE
+    )
+    return emoji_pattern.sub(r'', text)
 
 def clean_text(text):
-    """تنظيف النصوص من الرموز المشفرة وتحويل الإيموجي"""
+    """تنظيف النصوص من الرموز المشفرة"""
     if not text:
         return None
     text = html.unescape(text)
@@ -247,12 +261,6 @@ def clean_text(text):
     text = text.replace('\\x2F', '/')
     text = text.replace('\\"', '"')
     text = re.sub(r'\\x[0-9a-fA-F]{2}', '', text)
-    
-    # تحويل الإيموجي المشفر إلى إيموجي حقيقي
-    try:
-        text = text.encode('utf-8').decode('unicode-escape')
-    except:
-        pass
     
     if len(text) == 5 and text[2] == ' ' and text[0:2] == text[3:5]:
         text = text[0:2]
@@ -367,7 +375,7 @@ def get_full_country_name(country_code):
 
 
 def clean_profile_names(profiles_raw):
-    """تنقية أسماء البروفايلات وإزالة أسماء الأجهزة والكلمات الغريبة"""
+    """تنقية أسماء البروفايلات وإزالة أسماء الأجهزة والإيموجي"""
     if not profiles_raw:
         return [], 0
     
@@ -388,6 +396,11 @@ def clean_profile_names(profiles_raw):
     
     clean_names = []
     for name in names_list:
+        # إزالة الإيموجي من الاسم
+        name = remove_emojis(name)
+        if not name or len(name) < 2:
+            continue
+            
         name_lower = name.lower()
         
         if name_lower in forbidden_names:
@@ -412,7 +425,8 @@ def clean_profile_names(profiles_raw):
     
     if not clean_names:
         for name in names_list:
-            if name.lower() not in forbidden_names:
+            name = remove_emojis(name)
+            if name and name.lower() not in forbidden_names:
                 clean_names.append(name)
                 break
     
@@ -924,33 +938,18 @@ def format_country_with_flag(country_value):
 
 def get_language_from_html(html_content):
     """استخراج اللغة من HTML"""
-    # محاولة استخراج اللغة من data-uia="loc"
     loc_match = re.search(r'data-uia="loc"\s+lang="([^"]+)"', html_content)
     if loc_match:
         lang = loc_match.group(1)
-        # تحويل كود اللغة إلى اسم
         lang_names = {
             "en": "English", "en-AU": "English", "en-US": "English", "en-GB": "English",
             "ar": "العربية", "es": "Español", "fr": "Français", "de": "Deutsch",
-            "it": "Italiano", "pt": "Português", "pt-BR": "Português", "nl": "Nederlands",
+            "it": "Italiano", "pt": "Português", "nl": "Nederlands",
             "pl": "Polski", "tr": "Türkçe", "ru": "Русский", "ja": "日本語",
             "ko": "한국어", "zh": "中文", "hi": "हिन्दी", "sv": "Svenska",
-            "da": "Dansk", "no": "Norsk", "fi": "Suomi", "id": "Indonesia",
-            "th": "ไทย", "vi": "Tiếng Việt", "he": "עברית", "ro": "Română",
-            "el": "Ελληνικά", "cs": "Čeština", "hu": "Magyar", "hr": "Hrvatski"
         }
-        # استخراج اللغة الأساسية (قبل الـ -)
         base_lang = lang.split('-')[0]
         return lang_names.get(lang, lang_names.get(base_lang, lang))
-    
-    # محاولة استخراج من accept-language
-    accept_match = re.search(r'"accept-language":"([^"]+)"', html_content)
-    if accept_match:
-        lang = accept_match.group(1).split(',')[0].split(';')[0]
-        base_lang = lang.split('-')[0]
-        lang_names = {"en": "English", "ar": "العربية", "es": "Español", "fr": "Français"}
-        return lang_names.get(base_lang, lang)
-    
     return "English"
 
 def get_nftoken_mode(config):
@@ -1042,7 +1041,6 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
     country_raw = decode_netflix_value(info.get("countryOfSignup")) or "Unknown"
     country = format_country_with_flag(country_raw)
     
-    # استخراج اللغة
     language = get_language_from_html(html_content)
     if language == "Unknown":
         language = "English"
