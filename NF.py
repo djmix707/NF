@@ -905,6 +905,22 @@ def format_country_with_flag(country_value):
     flag = country_code_to_flag(country_code)
     return f"{country_name} {flag}".strip()
 
+def get_language_from_html(html_content):
+    """استخراج اللغة من HTML"""
+    loc_match = re.search(r'data-uia="loc"\s+lang="([^"]+)"', html_content)
+    if loc_match:
+        lang = loc_match.group(1)
+        lang_names = {
+            "en": "English", "en-AU": "English", "en-US": "English", "en-GB": "English",
+            "ar": "العربية", "es": "Español", "fr": "Français", "de": "Deutsch",
+            "it": "Italiano", "pt": "Português", "nl": "Nederlands",
+            "pl": "Polski", "tr": "Türkçe", "ru": "Русский", "ja": "日本語",
+            "ko": "한국어", "zh": "中文", "hi": "हिन्दी", "sv": "Svenska",
+        }
+        base_lang = lang.split('-')[0]
+        return lang_names.get(lang, lang_names.get(base_lang, lang))
+    return "English"
+
 def get_nftoken_mode(config):
     val = config.get("nftoken", "both")
     if isinstance(val, bool):
@@ -935,16 +951,14 @@ def create_nftoken(cookie_dict, attempts=1):
     return None, "Failed"
 
 def build_nftoken_links(token, mode):
+    """روابط NFToken - بدون Phone Login"""
     if not token or mode == "false":
         return []
     if mode == "pc":
         return [("PC Login", f"https://netflix.com/?nftoken={token}")]
     if mode == "mobile":
         return [("Phone Login", f"https://netflix.com/unsupported?nftoken={token}")]
-    return [
-        ("PC Login", f"https://netflix.com/?nftoken={token}"),
-        ("Phone Login", f"https://netflix.com/unsupported?nftoken={token}"),
-    ]
+    return [("PC Login", f"https://netflix.com/?nftoken={token}")]
 
 def get_account_page(session, proxy=None, timeout=15):
     headers = {
@@ -975,9 +989,9 @@ def get_account_page(session, proxy=None, timeout=15):
     return resp.text, resp.status_code, extract_info(resp.text)
 
 
-# ==================== RESULT FORMATTING ====================
+# ==================== RESULT FORMATTING (معدل) ====================
 
-def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename, nftoken_data=None, config=None):
+def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename, nftoken_data=None, config=None, html_content=""):
     if config is None:
         config, _ = load_config()
     
@@ -993,6 +1007,11 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
     
     country_raw = decode_netflix_value(info.get("countryOfSignup")) or "Unknown"
     country = format_country_with_flag(country_raw)
+    
+    # استخراج اللغة
+    language = get_language_from_html(html_content)
+    if language == "Unknown":
+        language = "English"
     
     plan = plan_label
     price = decode_netflix_value(info.get("planPrice")) or "N/A"
@@ -1038,15 +1057,16 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
     profiles_count = len(final_clean_profiles) if final_clean_profiles else (info.get("profileCount") or 0)
     
     lines = []
-    lines.append("=" * 65)
+    # تم إزالة الشريط الطويل =================================================================
     lines.append(f"STATUS: {status}")
-    lines.append("=" * 65)
+    lines.append("")
     lines.append("")
     lines.append("ACCOUNT DETAILS")
     lines.append("-" * 40)
     lines.append(f"Name: {account_name}")
     lines.append(f"Email: {email}")
     lines.append(f"Country: {country}")
+    lines.append(f"Language: {language}")
     lines.append(f"Plan: {plan}")
     
     if is_subscribed:
@@ -1079,25 +1099,15 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
     lines.append(f"Connected Profiles: {profiles_count}")
     lines.append(f"Profiles: {profiles_display}")
     
-    lines.append("")
-    lines.append("COOKIE")
-    lines.append("-" * 40)
-    cookie_clean = cookie_content.replace('\n', '').replace('\r', '')
-    cookie_clean = re.sub(r'\s+', '', cookie_clean)
-    lines.append(cookie_clean)
+    # تم إزالة جزء COOKIE بالكامل
     
-    lines.append("")
-    lines.append("FILTERS")
-    lines.append("-" * 40)
-    lines.append("Account Filter: Premium Only")
-    lines.append("Mode: Full Information")
+    # تم إزالة جزء FILTERS بالكامل
     
     if is_subscribed and nftoken_data and has_usable_nftoken(nftoken_data):
         lines.append("")
         lines.append("NFTOKEN LOGIN LINKS")
         lines.append("-" * 40)
-        mode = get_nftoken_mode(config)
-        for label, link in build_nftoken_links(nftoken_data["token"], mode):
+        for label, link in build_nftoken_links(nftoken_data["token"], "both"):
             lines.append(f"{label}:")
             lines.append("")
             lines.append(link)
@@ -1105,13 +1115,12 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
         if nftoken_data.get("expires_at_utc"):
             lines.append(f"Valid Until: {nftoken_data['expires_at_utc']}")
     
-    lines.append("")
-    lines.append("=" * 65)
+    # تم إزالة الشريط الأخير =================================================================
     
     return lines, plan_key
 
 
-# ==================== PROGRESS BAR FUNCTIONS ====================
+# ==================== PROGRESS BAR FUNCTIONS (شغال زي ما هو) ====================
 
 def format_progress_message(processed, total, valid_count, premium_count, free_count, invalid_count, speed, eta):
     percentage = (processed / total) * 100 if total > 0 else 0
@@ -1261,10 +1270,10 @@ async def process_single_bundle(update: Update, context: ContextTypes.DEFAULT_TY
         mode = context.user_data.get('mode', 'fullinfo')
         if mode == 'tokenonly':
             email = info.get("email", "Unknown")
-            result = f"Account: {email}\n\nNFToken Login Links:\n---\nPC Login:\n\nhttps://netflix.com/?nftoken={nftoken['token']}\n\nPhone Login:\n\nhttps://netflix.com/unsupported?nftoken={nftoken['token']}"
+            result = f"Account: {email}\n\nNFToken Login Links:\n---\nPC Login:\n\nhttps://netflix.com/?nftoken={nftoken['token']}"
             return result, None, "success" if is_sub else "free"
         else:
-            result_lines, plan_key = format_result_beautiful(info, is_sub, bundle.get("netscape_text", ""), cookie_filename, nftoken, config)
+            result_lines, plan_key = format_result_beautiful(info, is_sub, bundle.get("netscape_text", ""), cookie_filename, nftoken, config, response_text)
             result = "\n".join(result_lines)
             return result, plan_key, "success" if is_sub else "free"
     else:
@@ -1516,10 +1525,10 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                         nftoken, _ = create_nftoken(cookies, 1)
                                     if mode == 'tokenonly':
                                         email = info.get("email", "Unknown")
-                                        res = f"Account: {email}\n\nNFToken Login Links:\n---\nPC Login:\n\nhttps://netflix.com/?nftoken={nftoken['token']}\n\nPhone Login:\n\nhttps://netflix.com/unsupported?nftoken={nftoken['token']}"
+                                        res = f"Account: {email}\n\nNFToken Login Links:\n---\nPC Login:\n\nhttps://netflix.com/?nftoken={nftoken['token']}"
                                         plan_key = "unknown"
                                     else:
-                                        result_lines, plan_key = format_result_beautiful(info, is_sub, bundle.get("netscape_text", ""), cf, nftoken, config)
+                                        result_lines, plan_key = format_result_beautiful(info, is_sub, bundle.get("netscape_text", ""), cf, nftoken, config, response_text)
                                         res = "\n".join(result_lines)
                                     
                                     if plan_key in results_by_plan:
@@ -1530,7 +1539,7 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                         results_by_plan["premium"].append("\n" + "="*65 + "\n")
                                     stats['valid'] += 1
                                 else:
-                                    result_lines, plan_key = format_result_beautiful(info, is_sub, bundle.get("netscape_text", ""), cf, None, config)
+                                    result_lines, plan_key = format_result_beautiful(info, is_sub, bundle.get("netscape_text", ""), cf, None, config, response_text)
                                     res = "\n".join(result_lines)
                                     results_by_plan["free"].append(res)
                                     results_by_plan["free"].append("\n" + "="*65 + "\n")
