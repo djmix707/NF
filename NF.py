@@ -219,7 +219,8 @@ def clean_text(text):
     text = text.replace('\\x40', '@')
     text = text.replace('\\u00A0', ' ')
     text = text.replace('&nbsp;', ' ')
-    return text.strip()
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
 
 def decode_netflix_value(value):
     if value is None:
@@ -311,6 +312,8 @@ def clean_profile_names(profiles_raw):
                 break
         if skip:
             continue
+        if re.match(r'^\d+$', name):
+            continue
         clean_names.append(name)
     return clean_names, len(clean_names)
 
@@ -363,17 +366,20 @@ def build_nftoken_links(token, mode):
     ]
 
 
-# ==================== ACCOUNT EXTRACTION (REQUESTS ONLY - NO BROWSER) ====================
+# ==================== UPDATED ACCOUNT EXTRACTION (2026) ====================
 
 def get_account_page(session, proxy=None, timeout=15):
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9",
         "Accept-Language": "en-US,en;q=0.5",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Connection": "keep-alive",
     }
     urls = [
         "https://www.netflix.com/YourAccount",
         "https://www.netflix.com/account/membership",
+        "https://www.netflix.com/account/"
     ]
     for url in urls:
         try:
@@ -387,111 +393,209 @@ def get_account_page(session, proxy=None, timeout=15):
     return "", 0, {}
 
 def extract_info_from_html(html_content):
-    """استخراج المعلومات من HTML"""
+    """استخراج المعلومات من HTML - نسخة محدثة 2026"""
     info = {}
     
-    # استخراج الإيميل
+    # ========== 1. البريد الإلكتروني (Email) ==========
     email_patterns = [
-        r'"email":"([^"]+)"',
-        r'"loginId":"([^"]+)"',
-        r'data-uia="member-email"[^>]*>([^<]+)<',
+        r'data-uia="member-email"[^>]*>\s*<[^>]+>\s*([^<]+?)\s*<',
+        r'"email"\s*:\s*"([^@"]+@[^"]+)"',
+        r'"loginId"\s*:\s*"([^@"]+@[^"]+)"',
+        r'<span[^>]*data-uia="member-email"[^>]*>([^<]+)</span>',
+        r'email&lt;/b&gt;:</span>\s*<span[^>]*>([^<]+)</span>',
     ]
     for pattern in email_patterns:
-        match = re.search(pattern, html_content)
+        match = re.search(pattern, html_content, re.IGNORECASE)
         if match:
             info['email'] = clean_text(match.group(1))
             break
     
-    # استخراج الاسم
+    # ========== 2. اسم الحساب (Name) ==========
     name_patterns = [
-        r'"ownerName":"([^"]+)"',
-        r'"accountOwnerName":"([^"]+)"',
-        r'data-uia="member-name"[^>]*>([^<]+)<',
+        r'data-uia="member-name"[^>]*>\s*<[^>]+>\s*([^<]+?)\s*<',
+        r'"ownerName"\s*:\s*"([^"]+)"',
+        r'"accountOwnerName"\s*:\s*"([^"]+)"',
+        r'<span[^>]*data-uia="member-name"[^>]*>([^<]+)</span>',
+        r'Name&lt;/b&gt;:</span>\s*<span[^>]*>([^<]+)</span>',
     ]
     for pattern in name_patterns:
-        match = re.search(pattern, html_content)
+        match = re.search(pattern, html_content, re.IGNORECASE)
         if match:
             info['accountOwnerName'] = clean_text(match.group(1))
             break
     
-    # استخراج الخطة
+    # ========== 3. خطة الباقة (Plan Name) ==========
     plan_patterns = [
-        r'"localizedPlanName":"([^"]+)"',
-        r'"planName":"([^"]+)"',
-        r'data-uia="membership-plan"[^>]*>([^<]+)<',
+        r'data-uia="plan-name"[^>]*>\s*<[^>]+>\s*([^<]+?)\s*<',
+        r'"localizedPlanName"\s*:\s*"([^"]+)"',
+        r'"planName"\s*:\s*"([^"]+)"',
+        r'<span[^>]*data-uia="plan-name"[^>]*>([^<]+)</span>',
     ]
     for pattern in plan_patterns:
-        match = re.search(pattern, html_content)
+        match = re.search(pattern, html_content, re.IGNORECASE)
         if match:
             info['localizedPlanName'] = clean_text(match.group(1))
             break
     
-    # استخراج السعر
+    # ========== 4. السعر (Plan Price) ==========
     price_patterns = [
-        r'"planPrice":"([^"]+)"',
-        r'"price":"([^"]+)"',
-        r'data-uia="plan-price"[^>]*>([^<]+)<',
+        r'data-uia="plan-price"[^>]*>\s*<[^>]+>\s*([^<]+?)\s*<',
+        r'"planPrice"\s*:\s*"([^"]+)"',
+        r'"priceDisplay"\s*:\s*"([^"]+)"',
+        r'<span[^>]*data-uia="plan-price"[^>]*>([^<]+)</span>',
     ]
     for pattern in price_patterns:
-        match = re.search(pattern, html_content)
+        match = re.search(pattern, html_content, re.IGNORECASE)
         if match:
             info['planPrice'] = clean_text(match.group(1))
             break
     
-    # استخراج البلد
+    # ========== 5. البلد (Country) ==========
     country_patterns = [
-        r'"countryOfSignup":"([^"]+)"',
-        r'"currentCountry":"([^"]+)"',
-        r'data-uia="country"[^>]*>([^<]+)<',
+        r'data-uia="country-code"[^>]*>\s*<[^>]+>\s*([A-Z]{2})',
+        r'"countryOfSignup"\s*:\s*"([A-Z]{2})"',
+        r'"currentCountry"\s*:\s*"([A-Z]{2})"',
+        r'<span[^>]*data-uia="country-code"[^>]*>([A-Z]{2})</span>',
     ]
     for pattern in country_patterns:
-        match = re.search(pattern, html_content)
+        match = re.search(pattern, html_content, re.IGNORECASE)
         if match:
-            country = clean_text(match.group(1))
-            # استخراج كود البلد من النص
-            country_match = re.search(r'([A-Z]{2})', country)
-            if country_match:
-                info['countryOfSignup'] = country_match.group(1)
-            else:
-                info['countryOfSignup'] = country
+            info['countryOfSignup'] = match.group(1).upper()
             break
     
-    # استخراج تاريخ الاشتراك
+    # ========== 6. تاريخ الاشتراك (Member Since) ==========
     since_patterns = [
-        r'"memberSince":"([^"]+)"',
-        r'"joinDate":"([^"]+)"',
+        r'data-uia="member-since"[^>]*>\s*<[^>]+>\s*([^<]+?)\s*<',
+        r'"memberSince"\s*:\s*"([^"]+)"',
+        r'"joinDate"\s*:\s*"([^"]+)"',
+        r'<span[^>]*data-uia="member-since"[^>]*>([^<]+)</span>',
     ]
     for pattern in since_patterns:
-        match = re.search(pattern, html_content)
+        match = re.search(pattern, html_content, re.IGNORECASE)
         if match:
             info['memberSince'] = clean_text(match.group(1))
             break
     
-    # استخراج تاريخ التجديد
+    # ========== 7. تاريخ التجديد (Next Billing Date) ==========
     billing_patterns = [
-        r'"nextBillingDate":"([^"]+)"',
-        r'"billingDate":"([^"]+)"',
+        r'data-uia="next-bill-date"[^>]*>\s*<[^>]+>\s*([^<]+?)\s*(?:<|\(|$)',
+        r'"nextBillingDate"\s*:\s*"([^"]+)"',
+        r'"billingDate"\s*:\s*"([^"]+)"',
+        r'<span[^>]*data-uia="next-bill-date"[^>]*>([^<]+)</span>',
     ]
     for pattern in billing_patterns:
-        match = re.search(pattern, html_content)
+        match = re.search(pattern, html_content, re.IGNORECASE)
         if match:
-            info['nextBillingDate'] = clean_text(match.group(1))
+            raw_date = clean_text(match.group(1))
+            if raw_date and not raw_date.startswith("Your next billing date"):
+                info['nextBillingDate'] = raw_date
             break
     
-    # استخراج عدد الشاشات
-    streams_match = re.search(r'"maxStreams":(\d+)', html_content)
-    if streams_match:
-        info['maxStreams'] = int(streams_match.group(1))
+    # ========== 8. حالة العضوية (Membership Status) ==========
+    status_patterns = [
+        r'data-uia="membership-status"[^>]*>\s*<[^>]+>\s*([^<]+?)\s*<',
+        r'"membershipStatus"\s*:\s*"([^"]+)"',
+        r'<span[^>]*data-uia="membership-status"[^>]*>([^<]+)</span>',
+    ]
+    for pattern in status_patterns:
+        match = re.search(pattern, html_content, re.IGNORECASE)
+        if match:
+            info['membershipStatus'] = clean_text(match.group(1))
+            break
     
-    # استخراج الجودة
-    quality_match = re.search(r'"videoQuality":"([^"]+)"', html_content)
-    if quality_match:
-        info['videoQuality'] = clean_text(quality_match.group(1))
+    # ========== 9. عدد الشاشات (Max Streams) ==========
+    streams_patterns = [
+        r'data-uia="stream-count"[^>]*>\s*<[^>]+>\s*([0-9]+)\s*<',
+        r'"maxStreams"\s*:\s*([0-9]+)',
+        r'<span[^>]*data-uia="stream-count"[^>]*>([0-9]+)</span>',
+    ]
+    for pattern in streams_patterns:
+        match = re.search(pattern, html_content, re.IGNORECASE)
+        if match:
+            info['maxStreams'] = int(match.group(1))
+            break
     
-    # استخراج حالة العضوية
-    status_match = re.search(r'"membershipStatus":"([^"]+)"', html_content)
-    if status_match:
-        info['membershipStatus'] = clean_text(status_match.group(1))
+    # ========== 10. جودة الفيديو (Video Quality) ==========
+    quality_patterns = [
+        r'data-uia="video-quality"[^>]*>\s*<[^>]+>\s*([^<]+?)\s*<',
+        r'"videoQuality"\s*:\s*"([^"]+)"',
+        r'<span[^>]*data-uia="video-quality"[^>]*>([^<]+)</span>',
+    ]
+    for pattern in quality_patterns:
+        match = re.search(pattern, html_content, re.IGNORECASE)
+        if match:
+            info['videoQuality'] = clean_text(match.group(1))
+            break
+    
+    # ========== 11. طريقة الدفع (Payment Method) ==========
+    payment_patterns = [
+        r'data-uia="payment-method"[^>]*>\s*<[^>]+>\s*([^<]+?)\s*<',
+        r'"paymentMethodType"\s*:\s*"([^"]+)"',
+        r'<span[^>]*data-uia="payment-method"[^>]*>([^<]+)</span>',
+    ]
+    for pattern in payment_patterns:
+        match = re.search(pattern, html_content, re.IGNORECASE)
+        if match:
+            info['paymentMethodType'] = clean_text(match.group(1))
+            break
+    
+    # ========== 12. معلومات الكارد (Card) ==========
+    card_patterns = [
+        r'data-uia="credit-card"[^>]*>\s*<[^>]+>\s*([^<]+?)\s*<',
+        r'"maskedCard"\s*:\s*"([^"]+)"',
+        r'<span[^>]*data-uia="credit-card"[^>]*>([^<]+)</span>',
+    ]
+    for pattern in card_patterns:
+        match = re.search(pattern, html_content, re.IGNORECASE)
+        if match:
+            info['maskedCard'] = clean_text(match.group(1))
+            break
+    
+    # ========== 13. أسماء البروفايلات (Profiles) ==========
+    profile_names = []
+    # الطريقة الأولى: البحث عن عناصر data-uia="profile-name"
+    for match in re.finditer(r'data-uia="profile-name"[^>]*>\s*<[^>]+>\s*([^<]+?)\s*<', html_content, re.IGNORECASE):
+        name = clean_text(match.group(1))
+        if name and len(name) > 1 and name.lower() not in ['add profile', 'manage profiles']:
+            profile_names.append(name)
+    
+    # الطريقة الثانية: البحث في الـ JSON
+    if not profile_names:
+        profiles_match = re.search(r'"profiles"\s*:\s*\[(.*?)\]', html_content, re.DOTALL)
+        if profiles_match:
+            for name_match in re.finditer(r'"name"\s*:\s*"([^"]+)"', profiles_match.group(1)):
+                name = clean_text(name_match.group(1))
+                if name and len(name) > 1:
+                    profile_names.append(name)
+    
+    # إزالة التكرار
+    unique_profiles = []
+    for name in profile_names:
+        if name not in unique_profiles:
+            unique_profiles.append(name)
+    
+    if unique_profiles:
+        info['profiles'] = ", ".join(unique_profiles[:15])
+        info['profileCount'] = len(unique_profiles)
+    
+    # ========== 14. رقم الهاتف (Phone Number) ==========
+    phone_patterns = [
+        r'data-uia="phone-number"[^>]*>\s*<[^>]+>\s*([^<]+?)\s*<',
+        r'"phoneNumber"\s*:\s*"([^"]+)"',
+        r'<span[^>]*data-uia="phone-number"[^>]*>([^<]+)</span>',
+    ]
+    for pattern in phone_patterns:
+        match = re.search(pattern, html_content, re.IGNORECASE)
+        if match:
+            phone = clean_text(match.group(1))
+            if phone and 'add phone' not in phone.lower():
+                info['phoneNumber'] = phone
+            break
+    
+    # ========== 15. حالة البريد الإلكتروني (Email Verified) ==========
+    email_verified_match = re.search(r'data-uia="email-verified"[^>]*>\s*<[^>]+>\s*([^<]+?)\s*<', html_content, re.IGNORECASE)
+    if email_verified_match:
+        info['emailVerified'] = clean_text(email_verified_match.group(1))
     
     return {k: v for k, v in info.items() if v}
 
@@ -733,7 +837,7 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
     member_since = format_member_since(info.get("memberSince")) or "Unknown"
     next_billing = format_display_date(info.get("nextBillingDate")) or "Unknown"
     
-    payment = "Credit Card"
+    payment = decode_netflix_value(info.get("paymentMethodType")) or "Credit Card"
     card = decode_netflix_value(info.get("maskedCard")) or "N/A"
     card_display = f"Card: {card}" if card != "N/A" and card else ""
     
@@ -741,7 +845,7 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
     quality = decode_netflix_value(info.get("videoQuality")) or "Unknown"
     streams = str(info.get("maxStreams") or "Unknown")
     extra_member = "Yes" if is_extra_member_account(info) else "No"
-    email_verified = "Unknown"
+    email_verified = decode_netflix_value(info.get("emailVerified")) or "Unknown"
     
     membership_raw = info.get("membershipStatus") or "Unknown"
     membership_status = get_membership_status_display(membership_raw)
