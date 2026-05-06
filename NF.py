@@ -226,7 +226,7 @@ def write_text_file_safely(path, content):
         f.write(content)
 
 def clean_text(text):
-    """تنظيف النصوص من الرموز المشفرة"""
+    """تنظيف النصوص من الرموز المشفرة وتحويل Unicode"""
     if not text:
         return None
     text = html.unescape(text)
@@ -237,6 +237,13 @@ def clean_text(text):
     text = text.replace('\\x2F', '/')
     text = text.replace('\\"', '"')
     text = re.sub(r'\\x[0-9a-fA-F]{2}', '', text)
+    
+    # تحويل \uXXXX إلى حروف حقيقية (للفيتنامية والإسبانية والعربية)
+    try:
+        text = text.encode('utf-8').decode('unicode-escape')
+    except:
+        pass
+    
     if len(text) == 5 and text[2] == ' ' and text[0:2] == text[3:5]:
         text = text[0:2]
     return text.strip()
@@ -371,6 +378,7 @@ def clean_profile_names(profiles_raw):
     
     clean_names = []
     for name in names_list:
+        name = clean_text(name)  # تنظيف الاسم من Unicode escapes
         name_lower = name.lower()
         
         if name_lower in forbidden_names:
@@ -395,6 +403,7 @@ def clean_profile_names(profiles_raw):
     
     if not clean_names:
         for name in names_list:
+            name = clean_text(name)
             if name.lower() not in forbidden_names:
                 clean_names.append(name)
                 break
@@ -906,7 +915,7 @@ def format_country_with_flag(country_value):
     return f"{country_name} {flag}".strip()
 
 def get_language_from_html(html_content):
-    """استخراج اللغة من HTML"""
+    """استخراج اللغة من HTML وتحويلها لاسم كامل"""
     loc_match = re.search(r'data-uia="loc"\s+lang="([^"]+)"', html_content)
     if loc_match:
         lang = loc_match.group(1)
@@ -916,6 +925,9 @@ def get_language_from_html(html_content):
             "it": "Italiano", "pt": "Português", "nl": "Nederlands",
             "pl": "Polski", "tr": "Türkçe", "ru": "Русский", "ja": "日本語",
             "ko": "한국어", "zh": "中文", "hi": "हिन्दी", "sv": "Svenska",
+            "vi": "Tiếng Việt", "th": "ไทย", "id": "Indonesia", "ms": "Melayu",
+            "fil": "Filipino", "ro": "Română", "el": "Ελληνικά", "cs": "Čeština",
+            "hu": "Magyar", "hr": "Hrvatski", "uk": "Українська", "he": "עברית",
         }
         base_lang = lang.split('-')[0]
         return lang_names.get(lang, lang_names.get(base_lang, lang))
@@ -1008,7 +1020,7 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
     country_raw = decode_netflix_value(info.get("countryOfSignup")) or "Unknown"
     country = format_country_with_flag(country_raw)
     
-    # استخراج اللغة
+    # استخراج اللغة وتحويلها لاسم كامل
     language = get_language_from_html(html_content)
     if language == "Unknown":
         language = "English"
@@ -1057,7 +1069,7 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
     profiles_count = len(final_clean_profiles) if final_clean_profiles else (info.get("profileCount") or 0)
     
     lines = []
-    # تم إزالة الشريط الطويل =================================================================
+    # تم إزالة الشريط الطويل
     lines.append(f"STATUS: {status}")
     lines.append("")
     lines.append("")
@@ -1099,9 +1111,7 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
     lines.append(f"Connected Profiles: {profiles_count}")
     lines.append(f"Profiles: {profiles_display}")
     
-    # تم إزالة جزء COOKIE بالكامل
-    
-    # تم إزالة جزء FILTERS بالكامل
+    # تم إزالة COOKIE و FILTERS
     
     if is_subscribed and nftoken_data and has_usable_nftoken(nftoken_data):
         lines.append("")
@@ -1115,12 +1125,12 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
         if nftoken_data.get("expires_at_utc"):
             lines.append(f"Valid Until: {nftoken_data['expires_at_utc']}")
     
-    # تم إزالة الشريط الأخير =================================================================
+    # تم إزالة الشريط الأخير
     
     return lines, plan_key
 
 
-# ==================== PROGRESS BAR FUNCTIONS (شغال زي ما هو) ====================
+# ==================== PROGRESS BAR FUNCTIONS (معدل للتحديث السريع) ====================
 
 def format_progress_message(processed, total, valid_count, premium_count, free_count, invalid_count, speed, eta):
     percentage = (processed / total) * 100 if total > 0 else 0
@@ -1341,7 +1351,7 @@ async def handle_single_file(update: Update, context: ContextTypes.DEFAULT_TYPE)
     status_msg = await update.message.reply_text(f"📥 Processing: {fname}\n\n{format_progress_message(0, total_bundles, 0, 0, 0, 0, 0, 0)}")
     
     last_update_time = time.time()
-    update_interval = 2.0
+    update_interval = 1.0  # تحديث كل ثانية (كان 2.0)
     last_processed = 0
     
     for idx, bundle in enumerate(bundles, 1):
@@ -1350,7 +1360,7 @@ async def handle_single_file(update: Update, context: ContextTypes.DEFAULT_TYPE)
             break
         
         current_time = time.time()
-        if current_time - last_update_time >= update_interval or processed - last_processed >= 5 or processed == total_bundles:
+        if current_time - last_update_time >= update_interval or processed - last_processed >= 1 or processed == total_bundles:  # تحديث كل ملف
             elapsed = time.time() - start_time
             premium_count = len(results_by_plan["premium"])
             speed = processed / elapsed if elapsed > 0 else 0
@@ -1432,7 +1442,7 @@ Speed: {spd:.2f} accounts/second
     user_tasks[uid]['active'] = False
 
 
-# ==================== ZIP FILE HANDLER ====================
+# ==================== ZIP FILE HANDLER (معدل للتحديث السريع) ====================
 
 async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global stats
@@ -1465,6 +1475,10 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     total_files = 0
     processed = 0
     
+    last_update_time = time.time()
+    update_interval = 1.0  # تحديث كل ثانية (كان 2.0)
+    last_processed = 0
+    
     try:
         with zipfile.ZipFile(zip_data, 'r') as zf:
             files = [f for f in zf.namelist() if f.endswith(('.txt', '.json'))]
@@ -1493,7 +1507,7 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         stats['total'] += 1
                         
                         current_time = time.time()
-                        if current_time - last_update_time >= update_interval or processed - last_processed >= 5 or processed == total_files:
+                        if current_time - last_update_time >= update_interval or processed - last_processed >= 1 or processed == total_files:  # تحديث كل ملف
                             elapsed = time.time() - start
                             premium_count = len(results_by_plan["premium"])
                             speed = processed / elapsed if elapsed > 0 else 0
@@ -1575,7 +1589,7 @@ Membership: {partial_info.get('membershipStatus', 'Unknown')}
                     processed += 1
                     
                     current_time = time.time()
-                    if current_time - last_update_time >= update_interval or processed - last_processed >= 5 or processed == total_files:
+                    if current_time - last_update_time >= update_interval or processed - last_processed >= 1 or processed == total_files:  # تحديث كل ملف
                         elapsed = time.time() - start
                         premium_count = len(results_by_plan["premium"])
                         speed = processed / elapsed if elapsed > 0 else 0
