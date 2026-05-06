@@ -354,15 +354,13 @@ def clean_profile_names(profiles_raw):
     if not profiles_raw:
         return [], 0
     
-    # تنظيف أسماء البروفايلات من الإيموجي
     names_list = [p.strip() for p in profiles_raw.split(",") if p.strip()]
     
     clean_names = []
     for name in names_list:
-        # إزالة الإيموجي فقط، نسي الأسماء العادية
+        # إزالة الإيموجي من الاسم
         name_clean = remove_emojis(name)
         if name_clean and len(name_clean) >= 1:
-            # إزالة المسافات الزائدة
             name_clean = name_clean.strip()
             if name_clean:
                 clean_names.append(name_clean)
@@ -706,7 +704,6 @@ def extract_account_info(growth_account):
     for p in profiles:
         name = decode_netflix_value(p.get('name'))
         if name:
-            # نشيل الإيموجي من أسماء البروفايلات
             name = remove_emojis(name)
             if name and len(name) > 1:
                 profile_names.append(name)
@@ -854,7 +851,7 @@ def format_display_date(value):
     try:
         if re.match(r"\d{4}-\d{2}-\d{2}", cleaned):
             d = datetime.strptime(cleaned[:10], "%Y-%m-%d")
-            return d.strftime("%B %d, %Y")
+            return d.strftime("%d %B %Y")
     except:
         pass
     return cleaned
@@ -873,16 +870,13 @@ def format_member_since(value):
     return cleaned
 
 def country_code_to_flag(country_code):
-    raw = decode_netflix_value(country_code) or ""
-    if len(raw) == 2 and raw.isalpha():
-        return "".join(chr(127397 + ord(c)) for c in raw.upper())
+    # لا نستخدم الأعلام
     return ""
 
 def format_country_with_flag(country_value):
     country_code = decode_netflix_value(country_value) or "Unknown"
     country_name = get_full_country_name(country_code)
-    flag = country_code_to_flag(country_code)
-    return f"{country_name} {flag}".strip()
+    return country_name
 
 def get_language_from_html(html_content):
     """استخراج اللغة من HTML"""
@@ -930,14 +924,14 @@ def create_nftoken(cookie_dict, attempts=1):
     return None, "Failed"
 
 def build_nftoken_links(token, mode):
-    """بناء روابط NFToken - نخرج Phone Login"""
+    """بناء روابط NFToken - بدون Phone Login"""
     if not token or mode == "false":
         return []
     if mode == "pc":
         return [("PC Login", f"https://netflix.com/?nftoken={token}")]
     if mode == "mobile":
         return [("Phone Login", f"https://netflix.com/unsupported?nftoken={token}")]
-    # الوضع both - نخرج Phone Login ونبقي PC Login فقط
+    # الوضع both - نخرج PC Login فقط
     return [("PC Login", f"https://netflix.com/?nftoken={token}")]
 
 def get_account_page(session, proxy=None, timeout=15):
@@ -969,7 +963,7 @@ def get_account_page(session, proxy=None, timeout=15):
     return resp.text, resp.status_code, extract_info(resp.text)
 
 
-# ==================== RESULT FORMATTING ====================
+# ==================== RESULT FORMATTING (بدون أي إيموجي) ====================
 
 def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename, nftoken_data=None, config=None, html_content=""):
     if config is None:
@@ -978,7 +972,7 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
     plan_key, plan_label = derive_plan_info(info, is_subscribed)
     status = "Valid Premium Account" if is_subscribed else "Valid Free Account"
     
-    # تنظيف الاسم من الإيموجي
+    # تنظيف الاسم من أي إيموجي
     account_name = decode_netflix_value(info.get("accountOwnerName")) or "Unknown"
     account_name = remove_emojis(account_name)
     if account_name == "Unknown" or account_name.lower() in ['chrome', 'firefox', 'safari', 'edge', 'opera']:
@@ -987,94 +981,105 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
     
     email = decode_netflix_value(info.get("email")) or "Unknown"
     email = clean_text(email)
+    email = remove_emojis(email)
     
     country_raw = decode_netflix_value(info.get("countryOfSignup")) or "Unknown"
-    country = format_country_with_flag(country_raw)
+    country_name = get_full_country_name(country_raw)
+    country = remove_emojis(country_name)
     
     language = get_language_from_html(html_content)
-    if language == "Unknown":
+    language = remove_emojis(language)
+    if language == "Unknown" or not language:
         language = "English"
     
     plan = plan_label
     price = decode_netflix_value(info.get("planPrice")) or "N/A"
     member_since = format_member_since(info.get("memberSince")) or "Unknown"
-    next_billing = format_display_date(info.get("nextBillingDate")) or "Unknown"
+    member_since = remove_emojis(member_since)
+    
+    # Next Billing - نضمن ظهوره
+    next_billing_raw = info.get("nextBillingDate")
+    next_billing = "Unknown"
+    if next_billing_raw:
+        if isinstance(next_billing_raw, dict):
+            next_billing_raw = next_billing_raw.get('date') or next_billing_raw.get('localDate')
+        if next_billing_raw:
+            next_billing = format_display_date(next_billing_raw)
+            next_billing = remove_emojis(next_billing)
     
     payment = extract_payment_method_strong(cookie_filename if hasattr(cookie_filename, 'find') else "", info)
+    payment = remove_emojis(payment)
     if payment == "Unknown" or not payment:
         payment = "Credit Card"
     
     card = decode_netflix_value(info.get("maskedCard")) or "N/A"
+    card = remove_emojis(card)
     card_display = f"Card: {card}" if card != "N/A" and card else ""
     
     phone = decode_netflix_value(info.get("phoneNumber")) or "N/A"
     phone = remove_emojis(phone)
     phone_verified = "Verified" if info.get("phoneVerified") else "Not Verified"
+    
     quality = decode_netflix_value(info.get("videoQuality")) or "Unknown"
+    quality = remove_emojis(quality)
     streams = str(info.get("maxStreams") or "Unknown").rstrip("}")
-    hold = "No"
-    extra_member = "Yes" if is_extra_member_account(info) else "No"
     email_verified = "Yes" if info.get("emailVerified") else "No"
     
     membership_raw = info.get("membershipStatus") or "Unknown"
     membership_status = get_membership_status_display(membership_raw)
+    membership_status = remove_emojis(membership_status)
     
+    # تنظيف أسماء البروفايلات - شيل أي إيموجي خالص
     profiles_raw = info.get("profiles") or ""
     clean_profiles, clean_profiles_count = clean_profile_names(profiles_raw)
     
-    # تنظيف أسماء البروفايلات من الإيموجي
+    # تنظيف كل اسم بروفايل من أي إيموجي تاني
     clean_profiles = [remove_emojis(p) for p in clean_profiles]
-    clean_profiles = [p for p in clean_profiles if p and len(p) > 0]
+    clean_profiles = [p for p in clean_profiles if p and p.strip()]
     
     profiles_display = ", ".join(clean_profiles[:15]) if clean_profiles else "None"
-    profiles_count = clean_profiles_count
+    profiles_count = clean_profiles_count or info.get("profileCount") or 0
     
+    # بناء النتيجة - من غير أي إيموجي ولا رموز
     lines = []
     lines.append(f"STATUS: {status}")
     lines.append("")
     lines.append("")
     lines.append("ACCOUNT DETAILS")
     lines.append("-" * 40)
-    lines.append(f"👤 Name: {account_name}")
-    lines.append(f"📧 Email: {email}")
-    lines.append(f"🌍 Country: {country}")
-    lines.append(f"🌐 Language: {language}")
-    
-    # إيموجي الخطة حسب النوع
-    plan_emoji = "🎯" if plan_key == "premium" else "📺" if plan_key == "standard" else "📱" if plan_key == "basic" else "🎬"
-    lines.append(f"{plan_emoji} Plan: {plan}")
+    lines.append(f"Name: {account_name}")
+    lines.append(f"Email: {email}")
+    lines.append(f"Country: {country}")
+    lines.append(f"Language: {language}")
+    lines.append(f"Plan: {plan}")
     
     if is_subscribed:
         if price != "N/A" and price:
-            lines.append(f"💰 Price: {price}")
+            lines.append(f"Price: {price}")
         if member_since != "Unknown":
-            lines.append(f"🗓️ Member Since: {member_since}")
+            lines.append(f"Member Since: {member_since}")
         if next_billing != "Unknown":
-            lines.append(f"⏰ Next Billing: {next_billing}")
+            lines.append(f"Next Billing: {next_billing}")
         if payment and payment != "Unknown":
-            lines.append(f"💳 Payment: {payment}")
+            lines.append(f"Payment: {payment}")
         if card_display:
             lines.append(card_display)
         if phone != "N/A" and phone:
-            lines.append(f"📞 Phone: {phone} ({phone_verified})")
+            lines.append(f"Phone: {phone} ({phone_verified})")
         if quality != "Unknown":
-            lines.append(f"📺 Quality: {quality}")
+            lines.append(f"Quality: {quality}")
         if streams != "Unknown":
-            lines.append(f"📱 Streams: {streams}")
-        lines.append(f"👥 Profiles: {profiles_count}")
+            lines.append(f"Streams: {streams}")
+        lines.append(f"Email Verified: {email_verified}")
+        lines.append(f"Membership Status: {membership_status}")
     else:
-        lines.append(f"👥 Profiles: {profiles_count}")
+        lines.append(f"Email Verified: {email_verified}")
     
     lines.append("")
     lines.append("PROFILES")
     lines.append("-" * 40)
-    if profiles_display and profiles_display != "None":
-        # إضافة ايموجي 👤 قدام كل بروفايل
-        profile_list = profiles_display.split(", ")
-        formatted_profiles = [f"👤 {p}" for p in profile_list]
-        lines.append(f"{', '.join(formatted_profiles)}")
-    else:
-        lines.append("None")
+    lines.append(f"Connected Profiles: {profiles_count}")
+    lines.append(f"Profiles: {profiles_display}")
     
     if is_subscribed and nftoken_data and has_usable_nftoken(nftoken_data):
         lines.append("")
