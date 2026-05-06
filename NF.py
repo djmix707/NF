@@ -225,8 +225,18 @@ def write_text_file_safely(path, content):
     with open(path, "w", encoding="utf-8") as f:
         f.write(content)
 
+def decode_unicode_escape(text):
+    """تحويل \uXXXX إلى الإيموجي الحقيقي"""
+    if not text:
+        return text
+    try:
+        result = re.sub(r'\\u[0-9a-fA-F]{4}', lambda m: m.group(0).encode().decode('unicode-escape'), text)
+        return result
+    except:
+        return text
+
 def clean_text(text):
-    """تنظيف النصوص من الرموز المشفرة"""
+    """تنظيف النصوص من الرموز المشفرة وتحويل الإيموجي"""
     if not text:
         return None
     text = html.unescape(text)
@@ -237,6 +247,13 @@ def clean_text(text):
     text = text.replace('\\x2F', '/')
     text = text.replace('\\"', '"')
     text = re.sub(r'\\x[0-9a-fA-F]{2}', '', text)
+    
+    # تحويل الإيموجي المشفر إلى إيموجي حقيقي
+    try:
+        text = text.encode('utf-8').decode('unicode-escape')
+    except:
+        pass
+    
     if len(text) == 5 and text[2] == ' ' and text[0:2] == text[3:5]:
         text = text[0:2]
     return text.strip()
@@ -930,9 +947,11 @@ def get_language_from_html(html_content):
     accept_match = re.search(r'"accept-language":"([^"]+)"', html_content)
     if accept_match:
         lang = accept_match.group(1).split(',')[0].split(';')[0]
-        return lang
+        base_lang = lang.split('-')[0]
+        lang_names = {"en": "English", "ar": "العربية", "es": "Español", "fr": "Français"}
+        return lang_names.get(base_lang, lang)
     
-    return "Unknown"
+    return "English"
 
 def get_nftoken_mode(config):
     val = config.get("nftoken", "both")
