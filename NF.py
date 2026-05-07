@@ -962,31 +962,27 @@ Mode: Fullinfo
 
 # ==================== TELEGRAM BOT HANDLERS ====================
 
-async def bot_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    first_name = user.first_name if user.first_name else "User"
-    
-    await update.message.reply_text(f"""
-*🎬 Netflix Cookie Checker Bot*
+await update.message.reply_text(f"""
+<b>🎬 Netflix Cookie Checker Bot</b>
 
-*⚡ Developer: Eyad* 🚀
+<b>⚡ Developer: Eyad</b> 🚀
 
 
-*✨ Welcome {first_name}!* ✨
+<b>✨ Welcome {first_name}!</b> ✨
 
-*📌 WHAT I DO:*
+<b>📌 WHAT I DO:</b>
 
 ✅ Verify Netflix cookies
 ✅ Extract premium account details
 
-*⚙️ HOW TO USE:*
+<b>⚙️ HOW TO USE:</b>
 1️⃣ Export cookies (.txt or .json)
 2️⃣ Send files directly (single or ZIP)
 3️⃣ Watch progress bar
 4️⃣ Receive files by Plan
 
 
-*🕹️ COMMANDS:*
+<b>🕹️ COMMANDS:</b>
 
 /start  → Show menu
 /help   → Instructions
@@ -996,7 +992,7 @@ async def bot_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 /cancel     → Stop current task
 
 🔽 THE MENU BUTTON BELOW FOR COMMANDS
-""")
+""", parse_mode='HTML')
 
 async def bot_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("""
