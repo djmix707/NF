@@ -227,15 +227,6 @@ def clean_text(text):
         pass
     return text.strip()
 
-def fix_unicode(text):
-
-    if not text:
-        return text
-    try:
-        return text.encode('utf-8').decode('unicode-escape')
-    except:
-        return text
-
 def decode_netflix_value(value):
     if value is None:
         return None
@@ -818,11 +809,9 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
     account_name = decode_netflix_value(info.get("accountOwnerName")) or "Unknown"
     if account_name == "Unknown" or account_name.lower() in ['chrome', 'firefox', 'safari', 'edge', 'opera', 'android', 'ios', 'windows', 'mac', 'linux']:
         account_name = get_name_from_profiles(info)
-    account_name = fix_unicode(account_name)
     
     email = decode_netflix_value(info.get("email")) or "Unknown"
     email = clean_text(email)
-    email = fix_unicode(email)
     
     country_raw = decode_netflix_value(info.get("countryOfSignup")) or "Unknown"
     country = format_country_with_flag(country_raw)
@@ -830,7 +819,6 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
     language = get_language_from_html(html_content)
     if language == "Unknown":
         language = "English"
-    language = fix_unicode(language)
     
     plan = plan_label
     price = decode_netflix_value(info.get("planPrice")) or "N/A"
@@ -856,7 +844,6 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
     
     membership_raw = info.get("membershipStatus") or "Unknown"
     membership_status = get_membership_status_display(membership_raw)
-    membership_status = fix_unicode(membership_status)
     
     profiles_raw = info.get("profiles") or ""
     clean_profiles, clean_profiles_count = clean_profile_names(profiles_raw)
@@ -874,7 +861,6 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
         final_clean_profiles = clean_profiles
     
     profiles_display = ", ".join(final_clean_profiles[:15]) if final_clean_profiles else "None"
-    profiles_display = fix_unicode(profiles_display)
     profiles_count = len(final_clean_profiles) if final_clean_profiles else (info.get("profileCount") or 0)
     
     lines = []
@@ -935,7 +921,6 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
     lines.append("=" * 65)
     lines.append("")
     
-    # تنظيف النص النهائي
     final_text = ""
     for line in lines:
         try:
@@ -952,7 +937,7 @@ def format_progress_message(processed, total, valid_count, premium_count, free_c
     percentage = (processed / total) * 100 if total > 0 else 0
     filled = int(20 * percentage / 100)
     empty = 20 - filled
-    bar = "#" * filled + "-" * empty
+    bar = "█" * filled + "░" * empty
     
     message = f"""📦 Processing Progress
 
@@ -1124,7 +1109,6 @@ Membership: {partial_info.get('membershipStatus', 'Unknown')}
 # ==================== SEND RESULTS ====================
 
 async def send_results(update, results_by_plan, max_per_file=100):
-    """إرسال النتائج بعد تقسيمها إلى ملفات متعددة - كل 100 حساب في ملف"""
     for plan, results in results_by_plan.items():
         if not results or plan == "partial" or plan == "free":
             continue
@@ -1141,7 +1125,6 @@ async def send_results(update, results_by_plan, max_per_file=100):
             if not chunk_results:
                 continue
             
-            # تنظيف النص من أي حروف مشكلة
             clean_text_data = ""
             for line in chunk_results:
                 try:
@@ -1292,7 +1275,6 @@ Speed: {spd:.2f} accounts/second
             pass
         await update.message.reply_text(final)
         
-        # إرسال الملفات
         await send_results(update, results_by_plan, max_per_file=100)
         
         if results_by_plan["partial"]:
@@ -1344,7 +1326,6 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 user_tasks[uid]['active'] = False
                 return
             
-            # حساب العدد الإجمالي للكوكيز أولاً
             await msg.edit_text(f"📊 Scanning ZIP contents...")
             for cf in files:
                 content = zf.read(cf).decode('utf-8', errors='ignore')
@@ -1479,7 +1460,6 @@ Speed: {spd:.2f} accounts/second
                 pass
             await update.message.reply_text(final)
             
-            # إرسال الملفات
             await send_results(update, results_by_plan, max_per_file=100)
             
             if results_by_plan["partial"]:
@@ -1524,7 +1504,7 @@ async def set_commands(app):
     ])
 
 
-# ==================== MAIN (معدلة لـ Railway - من غير HTTPXRequest) ====================
+# ==================== MAIN ====================
 
 def main():
     create_base_folders()
@@ -1534,7 +1514,6 @@ def main():
     print("Bot is starting...")
     print("="*50)
     
-    # إنشاء التطبيق بدون HTTPXRequest (للتوافق مع Railway)
     app = Application.builder().token(BOT_TOKEN).build()
     
     app.add_handler(CommandHandler("start", bot_start))
