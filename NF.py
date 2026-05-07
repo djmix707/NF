@@ -967,34 +967,33 @@ async def bot_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     first_name = user.first_name if user.first_name else "User"
     
     await update.message.reply_text(f"""
-   🎬 Netflix Cookie Checker Bot
+*🎬 Netflix Cookie Checker Bot*
 
-       ⚡ Developer: Eyad 🚀
-
-
-✨ Welcome {first_name}! ✨
-
-📌 WHAT I DO:
-
-   ✅ Verify Netflix cookies
-   
-   ✅ Extract premium account details
-
-⚙️ HOW TO USE:
-   1️⃣ Export cookies (.txt or .json)
-   2️⃣ Send files directly (single or ZIP)
-   3️⃣ Watch progress bar
-   4️⃣ Receive files by Plan
+*⚡ Developer: Eyad* 🚀
 
 
-🕹️ COMMANDS:
+*✨ Welcome {first_name}!* ✨
 
-   /start  → Show menu
-   /help   → Instructions
-   /stats  → Statistics
-   /tokenonly  → Token-only mode
-   /fullinfo   → Full details mode
-   /cancel     → Stop current task
+*📌 WHAT I DO:*
+
+✅ Verify Netflix cookies
+✅ Extract premium account details
+
+*⚙️ HOW TO USE:*
+1️⃣ Export cookies (.txt or .json)
+2️⃣ Send files directly (single or ZIP)
+3️⃣ Watch progress bar
+4️⃣ Receive files by Plan
+
+
+*🕹️ COMMANDS:*
+
+/start  → Show menu
+/help   → Instructions
+/stats  → Statistics
+/tokenonly  → Token-only mode
+/fullinfo   → Full details mode
+/cancel     → Stop current task
 
 🔽 THE MENU BUTTON BELOW FOR COMMANDS
 """)
