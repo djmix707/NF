@@ -967,52 +967,34 @@ async def bot_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     first_name = user.first_name if user.first_name else "User"
     
     await update.message.reply_text(f"""
-<b>╔══════════════════════════════════════╗</b>
-<b>║     🎬 NETFLIX COOKIE CHECKER BOT     ║</b>
-<b>╚══════════════════════════════════════╝</b>
+🎬 Netflix Cookie Checker Bot
+⚡ Developer: Eyad 🚀
 
-<b>▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬</b>
+✨ Welcome {first_name}! ✨
 
-<b>✨ Welcome Dear {first_name} !</b>
+📌 WHAT I DO:
 
-<b>▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬</b>
+✅ Verify Netflix cookies
+✅ Extract premium account details
 
-<b>💎 WHAT I CAN DO FOR YOU :</b>
+⚙️ HOW TO USE:
 
-<b>✅</b> Verify Netflix Cookies
-<b>✅</b> Extract Full Account Details
-<b>✅</b> Get Premium/Standard/Basic Plans
-<b>✅</b> Show Profiles & Payment Method
-<b>✅</b> Generate NFToken Login Links
+1️⃣ Export cookies (.txt or .json)
+2️⃣ Send files directly (single or ZIP)
+3️⃣ Watch progress bar
+4️⃣ Receive files by Plan
 
-<b>▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬</b>
+🕹️ COMMANDS:
 
-<b>📤 HOW TO USE :</b>
+/start      → Show menu
+/help       → Instructions
+/stats      → Statistics
+/tokenonly  → Token-only mode
+/fullinfo   → Full details mode
+/cancel     → Stop task
 
-<b>1️⃣</b> Export cookies as .txt or .json
-<b>2️⃣</b> Send the file (or ZIP file)
-<b>3️⃣</b> Watch the progress bar
-<b>4️⃣</b> Receive sorted result files
-
-<b>▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬</b>
-
-<b>🎮 COMMANDS :</b>
-
-<b>📌 /start</b> ─ Show this menu
-<b>📌 /help</b>  ─ Instructions
-<b>📌 /stats</b> ─ Bot statistics
-<b>📌 /tokenonly</b> ─ Token mode only
-<b>📌 /fullinfo</b> ─ Full details mode
-<b>📌 /cancel</b> ─ Stop current task
-
-<b>▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬</b>
-
-<b>⚡ Developer : Eyad 🚀</b>
-
-<b>╔══════════════════════════════════════╗</b>
-<b>║     🔽 USE MENU BUTTON BELOW 🔽      ║</b>
-<b>╚══════════════════════════════════════╝</b>
-""", parse_mode='HTML')
+🔽 THE MENU BUTTON BELOW FOR COMMANDS
+""")
 async def bot_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("""
 📖 HELP & INSTRUCTIONS
