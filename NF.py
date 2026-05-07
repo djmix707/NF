@@ -967,26 +967,26 @@ async def bot_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     first_name = user.first_name if user.first_name else "User"
     
     await update.message.reply_text(f"""
-<b>🎬 Netflix Cookie Checker Bot</b>
+<b>🎬 Netflix Cookie Checker Bot
 
-<b>⚡ Developer: Eyad</b> 🚀
+⚡ Developer: Eyad 🚀
 
 
-<b>✨ Welcome {first_name}!</b> ✨
+✨ Welcome {first_name}! ✨
 
-<b>📌 WHAT I DO:</b>
+📌 WHAT I DO:
 
 ✅ Verify Netflix cookies
 ✅ Extract premium account details
 
-<b>⚙️ HOW TO USE:</b>
+⚙️ HOW TO USE:
 1️⃣ Export cookies (.txt or .json)
 2️⃣ Send files directly (single or ZIP)
 3️⃣ Watch progress bar
 4️⃣ Receive files by Plan
 
 
-<b>🕹️ COMMANDS:</b>
+🕹️ COMMANDS:
 
 /start  → Show menu
 /help   → Instructions
@@ -995,7 +995,7 @@ async def bot_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 /fullinfo   → Full details mode
 /cancel     → Stop current task
 
-🔽 THE MENU BUTTON BELOW FOR COMMANDS
+🔽 THE MENU BUTTON BELOW FOR COMMANDS</b>
 """, parse_mode='HTML')
 
 async def bot_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
