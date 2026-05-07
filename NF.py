@@ -7,6 +7,7 @@ import sys
 import time
 import zipfile
 import asyncio
+import tempfile
 from datetime import datetime, timedelta
 from io import BytesIO
 
@@ -564,18 +565,18 @@ def extract_account_info(growth_account):
 
 def extract_info_fallback(response_text):
     extracted = {
-        "accountOwnerName": extract_first_match(response_text, [r'"ownerName":"([^"]+)"', r'"name":"([^"]+)"']),
-        "email": extract_first_match(response_text, [r'"email":"([^"]+)"', r'"loginId":"([^"]+)"']),
-        "countryOfSignup": extract_first_match(response_text, [r'"currentCountry":"([^"]+)"', r'"countryOfSignup":"([^"]+)"']),
+        "accountOwnerName": extract_first_match(response_text, [r'"ownerName":"([^"]+)"', r'"name":"([^"]+)"', r'"accountOwnerName":"([^"]+)"']),
+        "email": extract_first_match(response_text, [r'"email":"([^"]+)"', r'"loginId":"([^"]+)"', r'"emailAddress":"([^"]+)"', r'"userEmail":"([^"]+)"', r'"email":"([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})"']),
+        "countryOfSignup": extract_first_match(response_text, [r'"currentCountry":"([^"]+)"', r'"countryOfSignup":"([^"]+)"', r'"country":"([^"]+)"']),
         "memberSince": extract_first_match(response_text, [r'"memberSince":"([^"]+)"', r'"joinDate":"([^"]+)"']),
         "nextBillingDate": extract_first_match(response_text, [r'"nextBillingDate":"([^"]+)"', r'"billingDate":"([^"]+)"']),
         "membershipStatus": extract_first_match(response_text, [r'"membershipStatus":"([^"]+)"', r'"status":"([^"]+)"']),
         "maxStreams": extract_first_match(response_text, [r'"maxStreams":(\d+)', r'"streams":(\d+)']),
         "localizedPlanName": extract_first_match(response_text, [r'"localizedPlanName":"([^"]+)"', r'"planName":"([^"]+)"']),
-        "planPrice": extract_first_match(response_text, [r'"planPrice":"([^"]+)"', r'"price":"([^"]+)"']),
+        "planPrice": extract_first_match(response_text, [r'"planPrice":"([^"]+)"', r'"price":"([^"]+)"', r'"formattedPlanPrice":"([^"]+)"']),
         "videoQuality": extract_first_match(response_text, [r'"videoQuality":"([^"]+)"', r'"quality":"([^"]+)"']),
         "paymentMethodType": extract_first_match(response_text, [r'"paymentMethodType":"([^"]+)"']),
-        "maskedCard": extract_first_match(response_text, [r'"maskedCard":"([^"]+)"', r'"cardNumber":"([^"]+)"']),
+        "maskedCard": extract_first_match(response_text, [r'"maskedCard":"([^"]+)"', r'"cardNumber":"([^"]+)"', r'"lastFour":"([^"]+)"']),
         "profiles": extract_profile_names_enhanced(response_text),
     }
     return {k: v for k, v in extracted.items() if v}
@@ -674,16 +675,34 @@ def get_language_from_html(html_content):
     return "English"
 
 def extract_all_account_details(html_content, info_dict):
+    """استخراج كل البيانات الناقصة من HTML - خاصة الإيميل"""
+    
+    # استخراج الإيميل بأنماط أقوى
     if not info_dict.get('email') or info_dict.get('email') == "Unknown":
-        email_patterns = [r'"email"\s*:\s*"([^"]+@[^"]+)"', r'"loginId"\s*:\s*"([^"]+@[^"]+)"', r'"emailAddress"\s*:\s*"([^"]+@[^"]+)"']
+        email_patterns = [
+            r'"email"\s*:\s*"([^"]+@[^"]+\.[^"]+)"',
+            r'"loginId"\s*:\s*"([^"]+@[^"]+\.[^"]+)"',
+            r'"emailAddress"\s*:\s*"([^"]+@[^"]+\.[^"]+)"',
+            r'"userEmail"\s*:\s*"([^"]+@[^"]+\.[^"]+)"',
+            r'<span[^>]*data-uia="email"[^>]*>([^<]+@[^<]+)</span>',
+            r'<div[^>]*class="email"[^>]*>([^<]+@[^<]+)</div>',
+            r'([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})',  # أي إيميل في الصفحة
+        ]
         for pattern in email_patterns:
             match = re.search(pattern, html_content, re.IGNORECASE)
             if match:
-                info_dict['email'] = clean_text(match.group(1))
-                break
+                email = clean_text(match.group(1))
+                if email and '@' in email and '.' in email:
+                    info_dict['email'] = email
+                    break
     
+    # استخراج السعر
     if not info_dict.get('planPrice') or info_dict.get('planPrice') == "N/A":
-        price_patterns = [r'"planPrice"\s*:\s*"([^"]+)"', r'"priceDisplay"\s*:\s*"([^"]+)"', r'"formattedPrice"\s*:\s*"([^"]+)"']
+        price_patterns = [
+            r'"planPrice"\s*:\s*"([^"]+)"',
+            r'"priceDisplay"\s*:\s*"([^"]+)"',
+            r'"formattedPrice"\s*:\s*"([^"]+)"',
+        ]
         for pattern in price_patterns:
             match = re.search(pattern, html_content, re.IGNORECASE)
             if match:
@@ -692,16 +711,24 @@ def extract_all_account_details(html_content, info_dict):
                     info_dict['planPrice'] = price
                     break
     
+    # استخراج تاريخ الفاتورة القادمة
     if not info_dict.get('nextBillingDate') or info_dict.get('nextBillingDate') == "Unknown":
-        billing_patterns = [r'"nextBillingDate"\s*:\s*"([^"]+)"', r'"billingDate"\s*:\s*"([^"]+)"']
+        billing_patterns = [
+            r'"nextBillingDate"\s*:\s*"([^"]+)"',
+            r'"billingDate"\s*:\s*"([^"]+)"',
+        ]
         for pattern in billing_patterns:
             match = re.search(pattern, html_content, re.IGNORECASE)
             if match:
                 info_dict['nextBillingDate'] = clean_text(match.group(1))
                 break
     
+    # استخراج رقم الهاتف
     if not info_dict.get('phoneNumber') or info_dict.get('phoneNumber') == "N/A":
-        phone_patterns = [r'"phoneNumber"\s*:\s*"([^"]+)"', r'"rawPhoneNumber"\s*:\s*"([^"]+)"']
+        phone_patterns = [
+            r'"phoneNumber"\s*:\s*"([^"]+)"',
+            r'"rawPhoneNumber"\s*:\s*"([^"]+)"',
+        ]
         for pattern in phone_patterns:
             match = re.search(pattern, html_content, re.IGNORECASE)
             if match:
@@ -710,8 +737,13 @@ def extract_all_account_details(html_content, info_dict):
                     info_dict['phoneNumber'] = phone
                     break
     
+    # استخراج تفاصيل الكارت
     if not info_dict.get('maskedCard') or info_dict.get('maskedCard') == "N/A":
-        card_patterns = [r'"maskedCard"\s*:\s*"([^"]+)"', r'"cardNumber"\s*:\s*"([^"]+)"', r'"lastFour"\s*:\s*"([^"]+)"']
+        card_patterns = [
+            r'"maskedCard"\s*:\s*"([^"]+)"',
+            r'"cardNumber"\s*:\s*"([^"]+)"',
+            r'"lastFour"\s*:\s*"([^"]+)"',
+        ]
         for pattern in card_patterns:
             match = re.search(pattern, html_content, re.IGNORECASE)
             if match:
@@ -755,6 +787,7 @@ def get_account_page(session, timeout=20):
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
     }
     urls = ["https://www.netflix.com/account/", "https://www.netflix.com/account/membership"]
     
@@ -776,6 +809,7 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
     if config is None:
         config = load_config()
     
+    # استخراج البيانات الناقصة من HTML
     info = extract_all_account_details(html_content, info)
     
     plan_key, plan_label = derive_plan_info(info, is_subscribed)
@@ -1184,28 +1218,45 @@ Speed: {spd:.2f} accounts/second
         await status_msg.delete()
         await update.message.reply_text(final)
         
-        # ========== إرسال الملفات مباشرة (Premium, Standard, Basic, Mobile فقط) ==========
+        # ========== إرسال الملفات ==========
         for plan in ["premium", "standard", "basic", "mobile"]:
             results = results_by_plan.get(plan, [])
             if results:
                 all_text = "".join(results)
-                buf = BytesIO()
-                buf.write(all_text.encode('utf-8'))
-                buf.seek(0)
-                filename = f"{plan.upper()}_ACCOUNTS.txt"
-                await update.message.reply_document(
-                    document=buf, 
-                    filename=filename, 
-                    caption=f"📄 {len(results)//2} {plan.upper()} Accounts Found"
-                )
-                await asyncio.sleep(0.5)
+                # حفظ في ملف مؤقت
+                with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', suffix='.txt', delete=False) as tmp_file:
+                    tmp_file.write(all_text)
+                    tmp_path = tmp_file.name
+                
+                try:
+                    with open(tmp_path, 'rb') as f:
+                        await update.message.reply_document(
+                            document=f, 
+                            filename=f"{plan.upper()}_ACCOUNTS.txt", 
+                            caption=f"📄 {len(results)//2} {plan.upper()} Accounts Found"
+                        )
+                    await asyncio.sleep(1)
+                except Exception as e:
+                    print(f"Error sending {plan}: {e}")
+                finally:
+                    try:
+                        os.unlink(tmp_path)
+                    except:
+                        pass
         
         if results_by_plan["partial"]:
             all_partial = "".join(results_by_plan["partial"])
-            buf = BytesIO()
-            buf.write(all_partial.encode('utf-8'))
-            buf.seek(0)
-            await update.message.reply_document(document=buf, filename="PARTIAL_DATA.txt", caption=f"⚠️ {len(results_by_plan['partial']) // 2} Accounts with Limited Data")
+            with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', suffix='.txt', delete=False) as tmp_file:
+                tmp_file.write(all_partial)
+                tmp_path = tmp_file.name
+            try:
+                with open(tmp_path, 'rb') as f:
+                    await update.message.reply_document(document=f, filename="PARTIAL_DATA.txt", caption=f"⚠️ {len(results_by_plan['partial']) // 2} Accounts with Limited Data")
+            finally:
+                try:
+                    os.unlink(tmp_path)
+                except:
+                    pass
         # ========== نهاية إرسال الملفات ==========
     
     user_tasks[uid]['active'] = False
@@ -1313,7 +1364,6 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                     stats['valid'] += 1
                                     premium_count += 1
                                 else:
-                                    # تجاهل الحسابات FREE
                                     stats['free'] += 1
                                     free_count += 1
                             else:
@@ -1375,29 +1425,44 @@ Speed: {spd:.2f} accounts/second
             await msg.delete()
             await update.message.reply_text(final)
             
-            # ========== إرسال الملفات مباشرة (Premium, Standard, Basic, Mobile فقط) ==========
+            # إرسال الملفات
             for plan in ["premium", "standard", "basic", "mobile"]:
                 results = results_by_plan.get(plan, [])
                 if results:
                     all_text = "".join(results)
-                    buf = BytesIO()
-                    buf.write(all_text.encode('utf-8'))
-                    buf.seek(0)
-                    filename = f"{plan.upper()}_ACCOUNTS.txt"
-                    await update.message.reply_document(
-                        document=buf, 
-                        filename=filename, 
-                        caption=f"📄 {len(results)//2} {plan.upper()} Accounts Found"
-                    )
-                    await asyncio.sleep(0.5)
+                    with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', suffix='.txt', delete=False) as tmp_file:
+                        tmp_file.write(all_text)
+                        tmp_path = tmp_file.name
+                    
+                    try:
+                        with open(tmp_path, 'rb') as f:
+                            await update.message.reply_document(
+                                document=f, 
+                                filename=f"{plan.upper()}_ACCOUNTS.txt", 
+                                caption=f"📄 {len(results)//2} {plan.upper()} Accounts Found"
+                            )
+                        await asyncio.sleep(1)
+                    except Exception as e:
+                        print(f"Error sending {plan}: {e}")
+                    finally:
+                        try:
+                            os.unlink(tmp_path)
+                        except:
+                            pass
             
             if results_by_plan["partial"]:
                 all_partial = "".join(results_by_plan["partial"])
-                buf = BytesIO()
-                buf.write(all_partial.encode('utf-8'))
-                buf.seek(0)
-                await update.message.reply_document(document=buf, filename="PARTIAL_DATA.txt", caption=f"⚠️ {len(results_by_plan['partial']) // 2} Accounts with Limited Data")
-            # ========== نهاية إرسال الملفات ==========
+                with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', suffix='.txt', delete=False) as tmp_file:
+                    tmp_file.write(all_partial)
+                    tmp_path = tmp_file.name
+                try:
+                    with open(tmp_path, 'rb') as f:
+                        await update.message.reply_document(document=f, filename="PARTIAL_DATA.txt", caption=f"⚠️ {len(results_by_plan['partial']) // 2} Accounts with Limited Data")
+                finally:
+                    try:
+                        os.unlink(tmp_path)
+                    except:
+                        pass
         else:
             await msg.edit_text("⏹️ Task was cancelled")
             
@@ -1437,11 +1502,12 @@ def main():
     print("Bot is starting...")
     print("="*50)
     
+    # إعدادات مهلة مناسبة لـ Railway
     request = HTTPXRequest(
-        connect_timeout=90.0,
-        read_timeout=300.0,
-        write_timeout=180.0,
-        pool_timeout=90.0,
+        connect_timeout=30.0,
+        read_timeout=90.0,
+        write_timeout=90.0,
+        pool_timeout=30.0,
     )
     
     app = Application.builder().token(BOT_TOKEN).request(request).build()
