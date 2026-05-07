@@ -1351,7 +1351,7 @@ async def handle_single_file(update: Update, context: ContextTypes.DEFAULT_TYPE)
     status_msg = await update.message.reply_text(f"📥 Processing: {fname}\n\n{format_progress_message(0, total_bundles, 0, 0, 0, 0, 0, 0)}")
     
     last_update_time = time.time()
-    update_interval = 1.0  # تحديث كل ثانية (كان 2.0)
+    update_interval = 1.0  # تحديث كل ثانية
     last_processed = 0
     
     for idx, bundle in enumerate(bundles, 1):
@@ -1360,7 +1360,7 @@ async def handle_single_file(update: Update, context: ContextTypes.DEFAULT_TYPE)
             break
         
         current_time = time.time()
-        if current_time - last_update_time >= update_interval or processed - last_processed >= 1 or processed == total_bundles:  # تحديث كل ملف
+        if current_time - last_update_time >= update_interval or processed - last_processed >= 1 or processed == total_bundles:
             elapsed = time.time() - start_time
             premium_count = len(results_by_plan["premium"])
             speed = processed / elapsed if elapsed > 0 else 0
@@ -1379,9 +1379,14 @@ async def handle_single_file(update: Update, context: ContextTypes.DEFAULT_TYPE)
         result, plan_key, result_type = await process_single_bundle(update, context, bundle, fname, status_msg, idx, total_bundles)
         
         if result:
-            if result_type == "success" and plan_key:
-                results_by_plan[plan_key].append(result)
-                results_by_plan[plan_key].append("\n" + "="*65 + "\n")
+            if result_type == "success":
+                # ========== التعديل المهم هنا ==========
+                # لو plan_key مش موجود أو unknown، نضعه في premium
+                if plan_key and plan_key in results_by_plan:
+                    results_by_plan[plan_key].append(result)
+                else:
+                    results_by_plan["premium"].append(result)
+                results_by_plan[plan_key if (plan_key and plan_key in results_by_plan) else "premium"].append("\n" + "="*65 + "\n")
                 stats['valid'] += 1
             elif result_type == "free":
                 results_by_plan["free"].append(result)
@@ -1476,7 +1481,7 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     processed = 0
     
     last_update_time = time.time()
-    update_interval = 1.0  # تحديث كل ثانية (كان 2.0)
+    update_interval = 1.0
     last_processed = 0
     
     try:
@@ -1507,7 +1512,7 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         stats['total'] += 1
                         
                         current_time = time.time()
-                        if current_time - last_update_time >= update_interval or processed - last_processed >= 1 or processed == total_files:  # تحديث كل ملف
+                        if current_time - last_update_time >= update_interval or processed - last_processed >= 1 or processed == total_files:
                             elapsed = time.time() - start
                             premium_count = len(results_by_plan["premium"])
                             speed = processed / elapsed if elapsed > 0 else 0
@@ -1545,12 +1550,12 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                         result_lines, plan_key = format_result_beautiful(info, is_sub, bundle.get("netscape_text", ""), cf, nftoken, config, response_text)
                                         res = "\n".join(result_lines)
                                     
+                                    # ========== التعديل المهم هنا ==========
                                     if plan_key in results_by_plan:
                                         results_by_plan[plan_key].append(res)
-                                        results_by_plan[plan_key].append("\n" + "="*65 + "\n")
                                     else:
                                         results_by_plan["premium"].append(res)
-                                        results_by_plan["premium"].append("\n" + "="*65 + "\n")
+                                    results_by_plan[plan_key if plan_key in results_by_plan else "premium"].append("\n" + "="*65 + "\n")
                                     stats['valid'] += 1
                                 else:
                                     result_lines, plan_key = format_result_beautiful(info, is_sub, bundle.get("netscape_text", ""), cf, None, config, response_text)
@@ -1589,7 +1594,7 @@ Membership: {partial_info.get('membershipStatus', 'Unknown')}
                     processed += 1
                     
                     current_time = time.time()
-                    if current_time - last_update_time >= update_interval or processed - last_processed >= 1 or processed == total_files:  # تحديث كل ملف
+                    if current_time - last_update_time >= update_interval or processed - last_processed >= 1 or processed == total_files:
                         elapsed = time.time() - start
                         premium_count = len(results_by_plan["premium"])
                         speed = processed / elapsed if elapsed > 0 else 0
