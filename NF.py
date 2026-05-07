@@ -7,6 +7,7 @@ import sys
 import time
 import zipfile
 import asyncio
+import tempfile
 from datetime import datetime, timedelta
 from io import BytesIO
 
@@ -674,8 +675,6 @@ def get_language_from_html(html_content):
     return "English"
 
 def extract_all_account_details(html_content, info_dict):
-    """استخراج كل البيانات الناقصة من HTML - خاصة الإيميل"""
-    
     if not info_dict.get('email') or info_dict.get('email') == "Unknown":
         email_patterns = [
             r'"email"\s*:\s*"([^"]+@[^"]+\.[^"]+)"',
@@ -1210,24 +1209,30 @@ Speed: {spd:.2f} accounts/second
         await status_msg.delete()
         await update.message.reply_text(final)
         
-        # ========== إرسال الملفات النهائي ==========
+        # ========== إرسال الملفات بطريقة الملفات المؤقتة ==========
         await update.message.reply_text("📤 جاري تجهيز وإرسال ملفات النتائج...")
         
         # 1. ملف Premium
         if results_by_plan["premium"]:
             content = "".join(results_by_plan["premium"])
-            file_obj = BytesIO()
-            file_obj.write(content.encode('utf-8'))
-            file_obj.seek(0)
+            with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', suffix='.txt', delete=False) as tmp:
+                tmp.write(content)
+                tmp_path = tmp.name
             try:
-                await update.message.reply_document(
-                    document=file_obj, 
-                    filename="PREMIUM_ACCOUNTS.txt", 
-                    caption=f"✅ {len(results_by_plan['premium']) // 2} Premium Account(s)"
-                )
+                with open(tmp_path, 'rb') as f:
+                    await update.message.reply_document(
+                        document=f, 
+                        filename="PREMIUM_ACCOUNTS.txt", 
+                        caption=f"✅ {len(results_by_plan['premium']) // 2} Premium Account(s)"
+                    )
                 await update.message.reply_text(f"✅ تم إرسال ملف Premium بنجاح.")
             except Exception as e:
-                await update.message.reply_text(f"❌ فشل إرسال ملف Premium: {str(e)[:100]}")
+                await update.message.reply_text(f"❌ خطأ في إرسال Premium: {str(e)[:100]}")
+            finally:
+                try:
+                    os.unlink(tmp_path)
+                except:
+                    pass
             await asyncio.sleep(0.5)
         else:
             await update.message.reply_text("ℹ️ لا توجد حسابات Premium.")
@@ -1235,18 +1240,24 @@ Speed: {spd:.2f} accounts/second
         # 2. ملف Standard
         if results_by_plan["standard"]:
             content = "".join(results_by_plan["standard"])
-            file_obj = BytesIO()
-            file_obj.write(content.encode('utf-8'))
-            file_obj.seek(0)
+            with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', suffix='.txt', delete=False) as tmp:
+                tmp.write(content)
+                tmp_path = tmp.name
             try:
-                await update.message.reply_document(
-                    document=file_obj, 
-                    filename="STANDARD_ACCOUNTS.txt", 
-                    caption=f"✅ {len(results_by_plan['standard']) // 2} Standard Account(s)"
-                )
+                with open(tmp_path, 'rb') as f:
+                    await update.message.reply_document(
+                        document=f, 
+                        filename="STANDARD_ACCOUNTS.txt", 
+                        caption=f"✅ {len(results_by_plan['standard']) // 2} Standard Account(s)"
+                    )
                 await update.message.reply_text(f"✅ تم إرسال ملف Standard بنجاح.")
             except Exception as e:
-                await update.message.reply_text(f"❌ فشل إرسال ملف Standard: {str(e)[:100]}")
+                await update.message.reply_text(f"❌ خطأ في إرسال Standard: {str(e)[:100]}")
+            finally:
+                try:
+                    os.unlink(tmp_path)
+                except:
+                    pass
             await asyncio.sleep(0.5)
         else:
             await update.message.reply_text("ℹ️ لا توجد حسابات Standard.")
@@ -1254,18 +1265,24 @@ Speed: {spd:.2f} accounts/second
         # 3. ملف Basic
         if results_by_plan["basic"]:
             content = "".join(results_by_plan["basic"])
-            file_obj = BytesIO()
-            file_obj.write(content.encode('utf-8'))
-            file_obj.seek(0)
+            with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', suffix='.txt', delete=False) as tmp:
+                tmp.write(content)
+                tmp_path = tmp.name
             try:
-                await update.message.reply_document(
-                    document=file_obj, 
-                    filename="BASIC_ACCOUNTS.txt", 
-                    caption=f"✅ {len(results_by_plan['basic']) // 2} Basic Account(s)"
-                )
+                with open(tmp_path, 'rb') as f:
+                    await update.message.reply_document(
+                        document=f, 
+                        filename="BASIC_ACCOUNTS.txt", 
+                        caption=f"✅ {len(results_by_plan['basic']) // 2} Basic Account(s)"
+                    )
                 await update.message.reply_text(f"✅ تم إرسال ملف Basic بنجاح.")
             except Exception as e:
-                await update.message.reply_text(f"❌ فشل إرسال ملف Basic: {str(e)[:100]}")
+                await update.message.reply_text(f"❌ خطأ في إرسال Basic: {str(e)[:100]}")
+            finally:
+                try:
+                    os.unlink(tmp_path)
+                except:
+                    pass
             await asyncio.sleep(0.5)
         else:
             await update.message.reply_text("ℹ️ لا توجد حسابات Basic.")
@@ -1273,18 +1290,24 @@ Speed: {spd:.2f} accounts/second
         # 4. ملف Mobile
         if results_by_plan["mobile"]:
             content = "".join(results_by_plan["mobile"])
-            file_obj = BytesIO()
-            file_obj.write(content.encode('utf-8'))
-            file_obj.seek(0)
+            with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', suffix='.txt', delete=False) as tmp:
+                tmp.write(content)
+                tmp_path = tmp.name
             try:
-                await update.message.reply_document(
-                    document=file_obj, 
-                    filename="MOBILE_ACCOUNTS.txt", 
-                    caption=f"✅ {len(results_by_plan['mobile']) // 2} Mobile Account(s)"
-                )
+                with open(tmp_path, 'rb') as f:
+                    await update.message.reply_document(
+                        document=f, 
+                        filename="MOBILE_ACCOUNTS.txt", 
+                        caption=f"✅ {len(results_by_plan['mobile']) // 2} Mobile Account(s)"
+                    )
                 await update.message.reply_text(f"✅ تم إرسال ملف Mobile بنجاح.")
             except Exception as e:
-                await update.message.reply_text(f"❌ فشل إرسال ملف Mobile: {str(e)[:100]}")
+                await update.message.reply_text(f"❌ خطأ في إرسال Mobile: {str(e)[:100]}")
+            finally:
+                try:
+                    os.unlink(tmp_path)
+                except:
+                    pass
             await asyncio.sleep(0.5)
         else:
             await update.message.reply_text("ℹ️ لا توجد حسابات Mobile.")
@@ -1292,18 +1315,24 @@ Speed: {spd:.2f} accounts/second
         # 5. ملف Partial
         if results_by_plan["partial"]:
             content = "".join(results_by_plan["partial"])
-            file_obj = BytesIO()
-            file_obj.write(content.encode('utf-8'))
-            file_obj.seek(0)
+            with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', suffix='.txt', delete=False) as tmp:
+                tmp.write(content)
+                tmp_path = tmp.name
             try:
-                await update.message.reply_document(
-                    document=file_obj, 
-                    filename="PARTIAL_DATA.txt", 
-                    caption=f"⚠️ {len(results_by_plan['partial']) // 2} Account(s) with Partial Data"
-                )
+                with open(tmp_path, 'rb') as f:
+                    await update.message.reply_document(
+                        document=f, 
+                        filename="PARTIAL_DATA.txt", 
+                        caption=f"⚠️ {len(results_by_plan['partial']) // 2} Account(s) with Partial Data"
+                    )
                 await update.message.reply_text(f"✅ تم إرسال ملف Partial بنجاح.")
             except Exception as e:
-                await update.message.reply_text(f"❌ فشل إرسال ملف Partial: {str(e)[:100]}")
+                await update.message.reply_text(f"❌ خطأ في إرسال Partial: {str(e)[:100]}")
+            finally:
+                try:
+                    os.unlink(tmp_path)
+                except:
+                    pass
             await asyncio.sleep(0.5)
         else:
             await update.message.reply_text("ℹ️ لا توجد بيانات جزئية.")
@@ -1476,95 +1505,125 @@ Speed: {spd:.2f} accounts/second
             await msg.delete()
             await update.message.reply_text(final)
             
-            # ========== إرسال الملفات النهائي ==========
+            # ========== إرسال الملفات بطريقة الملفات المؤقتة ==========
             await update.message.reply_text("📤 جاري تجهيز وإرسال ملفات النتائج...")
             
             if results_by_plan["premium"]:
                 content = "".join(results_by_plan["premium"])
-                file_obj = BytesIO()
-                file_obj.write(content.encode('utf-8'))
-                file_obj.seek(0)
+                with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', suffix='.txt', delete=False) as tmp:
+                    tmp.write(content)
+                    tmp_path = tmp.name
                 try:
-                    await update.message.reply_document(
-                        document=file_obj, 
-                        filename="PREMIUM_ACCOUNTS.txt", 
-                        caption=f"✅ {len(results_by_plan['premium']) // 2} Premium Account(s)"
-                    )
+                    with open(tmp_path, 'rb') as f:
+                        await update.message.reply_document(
+                            document=f, 
+                            filename="PREMIUM_ACCOUNTS.txt", 
+                            caption=f"✅ {len(results_by_plan['premium']) // 2} Premium Account(s)"
+                        )
                     await update.message.reply_text(f"✅ تم إرسال ملف Premium بنجاح.")
                 except Exception as e:
-                    await update.message.reply_text(f"❌ فشل إرسال ملف Premium: {str(e)[:100]}")
+                    await update.message.reply_text(f"❌ خطأ في إرسال Premium: {str(e)[:100]}")
+                finally:
+                    try:
+                        os.unlink(tmp_path)
+                    except:
+                        pass
                 await asyncio.sleep(0.5)
             else:
                 await update.message.reply_text("ℹ️ لا توجد حسابات Premium.")
             
             if results_by_plan["standard"]:
                 content = "".join(results_by_plan["standard"])
-                file_obj = BytesIO()
-                file_obj.write(content.encode('utf-8'))
-                file_obj.seek(0)
+                with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', suffix='.txt', delete=False) as tmp:
+                    tmp.write(content)
+                    tmp_path = tmp.name
                 try:
-                    await update.message.reply_document(
-                        document=file_obj, 
-                        filename="STANDARD_ACCOUNTS.txt", 
-                        caption=f"✅ {len(results_by_plan['standard']) // 2} Standard Account(s)"
-                    )
+                    with open(tmp_path, 'rb') as f:
+                        await update.message.reply_document(
+                            document=f, 
+                            filename="STANDARD_ACCOUNTS.txt", 
+                            caption=f"✅ {len(results_by_plan['standard']) // 2} Standard Account(s)"
+                        )
                     await update.message.reply_text(f"✅ تم إرسال ملف Standard بنجاح.")
                 except Exception as e:
-                    await update.message.reply_text(f"❌ فشل إرسال ملف Standard: {str(e)[:100]}")
+                    await update.message.reply_text(f"❌ خطأ في إرسال Standard: {str(e)[:100]}")
+                finally:
+                    try:
+                        os.unlink(tmp_path)
+                    except:
+                        pass
                 await asyncio.sleep(0.5)
             else:
                 await update.message.reply_text("ℹ️ لا توجد حسابات Standard.")
             
             if results_by_plan["basic"]:
                 content = "".join(results_by_plan["basic"])
-                file_obj = BytesIO()
-                file_obj.write(content.encode('utf-8'))
-                file_obj.seek(0)
+                with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', suffix='.txt', delete=False) as tmp:
+                    tmp.write(content)
+                    tmp_path = tmp.name
                 try:
-                    await update.message.reply_document(
-                        document=file_obj, 
-                        filename="BASIC_ACCOUNTS.txt", 
-                        caption=f"✅ {len(results_by_plan['basic']) // 2} Basic Account(s)"
-                    )
+                    with open(tmp_path, 'rb') as f:
+                        await update.message.reply_document(
+                            document=f, 
+                            filename="BASIC_ACCOUNTS.txt", 
+                            caption=f"✅ {len(results_by_plan['basic']) // 2} Basic Account(s)"
+                        )
                     await update.message.reply_text(f"✅ تم إرسال ملف Basic بنجاح.")
                 except Exception as e:
-                    await update.message.reply_text(f"❌ فشل إرسال ملف Basic: {str(e)[:100]}")
+                    await update.message.reply_text(f"❌ خطأ في إرسال Basic: {str(e)[:100]}")
+                finally:
+                    try:
+                        os.unlink(tmp_path)
+                    except:
+                        pass
                 await asyncio.sleep(0.5)
             else:
                 await update.message.reply_text("ℹ️ لا توجد حسابات Basic.")
             
             if results_by_plan["mobile"]:
                 content = "".join(results_by_plan["mobile"])
-                file_obj = BytesIO()
-                file_obj.write(content.encode('utf-8'))
-                file_obj.seek(0)
+                with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', suffix='.txt', delete=False) as tmp:
+                    tmp.write(content)
+                    tmp_path = tmp.name
                 try:
-                    await update.message.reply_document(
-                        document=file_obj, 
-                        filename="MOBILE_ACCOUNTS.txt", 
-                        caption=f"✅ {len(results_by_plan['mobile']) // 2} Mobile Account(s)"
-                    )
+                    with open(tmp_path, 'rb') as f:
+                        await update.message.reply_document(
+                            document=f, 
+                            filename="MOBILE_ACCOUNTS.txt", 
+                            caption=f"✅ {len(results_by_plan['mobile']) // 2} Mobile Account(s)"
+                        )
                     await update.message.reply_text(f"✅ تم إرسال ملف Mobile بنجاح.")
                 except Exception as e:
-                    await update.message.reply_text(f"❌ فشل إرسال ملف Mobile: {str(e)[:100]}")
+                    await update.message.reply_text(f"❌ خطأ في إرسال Mobile: {str(e)[:100]}")
+                finally:
+                    try:
+                        os.unlink(tmp_path)
+                    except:
+                        pass
                 await asyncio.sleep(0.5)
             else:
                 await update.message.reply_text("ℹ️ لا توجد حسابات Mobile.")
             
             if results_by_plan["partial"]:
                 content = "".join(results_by_plan["partial"])
-                file_obj = BytesIO()
-                file_obj.write(content.encode('utf-8'))
-                file_obj.seek(0)
+                with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', suffix='.txt', delete=False) as tmp:
+                    tmp.write(content)
+                    tmp_path = tmp.name
                 try:
-                    await update.message.reply_document(
-                        document=file_obj, 
-                        filename="PARTIAL_DATA.txt", 
-                        caption=f"⚠️ {len(results_by_plan['partial']) // 2} Account(s) with Partial Data"
-                    )
+                    with open(tmp_path, 'rb') as f:
+                        await update.message.reply_document(
+                            document=f, 
+                            filename="PARTIAL_DATA.txt", 
+                            caption=f"⚠️ {len(results_by_plan['partial']) // 2} Account(s) with Partial Data"
+                        )
                     await update.message.reply_text(f"✅ تم إرسال ملف Partial بنجاح.")
                 except Exception as e:
-                    await update.message.reply_text(f"❌ فشل إرسال ملف Partial: {str(e)[:100]}")
+                    await update.message.reply_text(f"❌ خطأ في إرسال Partial: {str(e)[:100]}")
+                finally:
+                    try:
+                        os.unlink(tmp_path)
+                    except:
+                        pass
                 await asyncio.sleep(0.5)
             else:
                 await update.message.reply_text("ℹ️ لا توجد بيانات جزئية.")
