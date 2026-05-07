@@ -962,7 +962,11 @@ Mode: Fullinfo
 
 # ==================== TELEGRAM BOT HANDLERS ====================
 
-await update.message.reply_text(f"""
+async def bot_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    first_name = user.first_name if user.first_name else "User"
+    
+    await update.message.reply_text(f"""
 <b>🎬 Netflix Cookie Checker Bot</b>
 
 <b>⚡ Developer: Eyad</b> 🚀
