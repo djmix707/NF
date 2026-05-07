@@ -10,6 +10,7 @@ import sys
 import time
 import unicodedata
 import zipfile
+import asyncio
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 
@@ -20,6 +21,7 @@ from urllib3.exceptions import InsecureRequestWarning
 try:
     from telegram import Update, BotCommand
     from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+    from telegram.request import HTTPXRequest
     TELEGRAM_AVAILABLE = True
 except ImportError:
     TELEGRAM_AVAILABLE = False
@@ -1001,7 +1003,7 @@ def get_account_page(session, proxy=None, timeout=15):
     return resp.text, resp.status_code, extract_info(resp.text)
 
 
-# ==================== RESULT FORMATTING (معدل) ====================
+# ==================== RESULT FORMATTING ====================
 
 def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename, nftoken_data=None, config=None, html_content=""):
     if config is None:
@@ -1020,7 +1022,6 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
     country_raw = decode_netflix_value(info.get("countryOfSignup")) or "Unknown"
     country = format_country_with_flag(country_raw)
     
-    # استخراج اللغة وتحويلها لاسم كامل
     language = get_language_from_html(html_content)
     if language == "Unknown":
         language = "English"
@@ -1069,7 +1070,6 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
     profiles_count = len(final_clean_profiles) if final_clean_profiles else (info.get("profileCount") or 0)
     
     lines = []
-    # تم إزالة الشريط الطويل
     lines.append(f"STATUS: {status}")
     lines.append("")
     lines.append("")
@@ -1111,8 +1111,6 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
     lines.append(f"Connected Profiles: {profiles_count}")
     lines.append(f"Profiles: {profiles_display}")
     
-    # تم إزالة COOKIE و FILTERS
-    
     if is_subscribed and nftoken_data and has_usable_nftoken(nftoken_data):
         lines.append("")
         lines.append("NFTOKEN LOGIN LINKS")
@@ -1125,12 +1123,10 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
         if nftoken_data.get("expires_at_utc"):
             lines.append(f"Valid Until: {nftoken_data['expires_at_utc']}")
     
-    # تم إزالة الشريط الأخير
-    
     return lines, plan_key
 
 
-# ==================== PROGRESS BAR FUNCTIONS (معدل للتحديث السريع) ====================
+# ==================== PROGRESS BAR FUNCTIONS ====================
 
 def format_progress_message(processed, total, valid_count, premium_count, free_count, invalid_count, speed, eta):
     percentage = (processed / total) * 100 if total > 0 else 0
@@ -1256,7 +1252,6 @@ async def bot_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ==================== PROCESS SINGLE BUNDLE ====================
 
 async def process_single_bundle(update: Update, context: ContextTypes.DEFAULT_TYPE, bundle, cookie_filename, status_msg, index, total):
-    """Process a single cookie bundle and return result"""
     global stats
     
     cookies = bundle.get("cookies", {})
@@ -1302,6 +1297,58 @@ Membership: {partial_info.get('membershipStatus', 'Unknown')}
             return result, None, "partial"
         else:
             return None, None, f"HTTP {status_code}"
+
+
+# ==================== SEND LARGE RESULTS FUNCTION ====================
+
+async def send_large_results(update, results_by_plan, max_per_file=20):
+    """إرسال النتائج بعد تقسيمها إلى ملفات متعددة إذا كانت كبيرة"""
+    for plan, results in results_by_plan.items():
+        if not results or plan == "partial":
+            continue
+        
+        all_results = "".join(results)
+        
+        # حساب حجم الملف التقريبي
+        file_size = len(all_results.encode('utf-8'))
+        
+        # إذا الملف صغير (أقل من 1 ميجا أو عدد النتائج قليل)
+        if file_size < 1024 * 1024 or len(results) < max_per_file * 2:
+            buf = BytesIO()
+            buf.write(all_results.encode('utf-8'))
+            buf.seek(0)
+            filename = f"{plan.upper()}_ACCOUNTS.txt"
+            await update.message.reply_document(
+                document=buf, 
+                filename=filename, 
+                caption=f"📄 {len(results)} {plan.upper()} Accounts Found"
+            )
+            await asyncio.sleep(0.5)
+        else:
+            # تقسيم النتائج إلى عدة ملفات
+            chunk_size = max_per_file  # كل 20 حساب في ملف
+            total_chunks = (len(results) + chunk_size - 1) // chunk_size
+            
+            for chunk_idx in range(total_chunks):
+                chunk_results = results[chunk_idx * chunk_size * 2 : (chunk_idx + 1) * chunk_size * 2]
+                
+                if not chunk_results:
+                    continue
+                    
+                chunk_text = "".join(chunk_results)
+                buf = BytesIO()
+                buf.write(chunk_text.encode('utf-8'))
+                buf.seek(0)
+                
+                if total_chunks == 1:
+                    filename = f"{plan.upper()}_ACCOUNTS.txt"
+                    caption = f"📄 {len(results)} {plan.upper()} Accounts Found"
+                else:
+                    filename = f"{plan.upper()}_ACCOUNTS_part{chunk_idx+1}_of_{total_chunks}.txt"
+                    caption = f"📄 Part {chunk_idx+1}/{total_chunks} - {len(chunk_results)} {plan.upper()} Accounts"
+                
+                await update.message.reply_document(document=buf, filename=filename, caption=caption)
+                await asyncio.sleep(0.5)
 
 
 # ==================== SINGLE FILE HANDLER ====================
@@ -1351,7 +1398,7 @@ async def handle_single_file(update: Update, context: ContextTypes.DEFAULT_TYPE)
     status_msg = await update.message.reply_text(f"📥 Processing: {fname}\n\n{format_progress_message(0, total_bundles, 0, 0, 0, 0, 0, 0)}")
     
     last_update_time = time.time()
-    update_interval = 1.0  # تحديث كل ثانية
+    update_interval = 1.0
     last_processed = 0
     
     for idx, bundle in enumerate(bundles, 1):
@@ -1380,13 +1427,12 @@ async def handle_single_file(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
         if result:
             if result_type == "success":
-                # ========== التعديل المهم هنا ==========
-                # لو plan_key مش موجود أو unknown، نضعه في premium
                 if plan_key and plan_key in results_by_plan:
                     results_by_plan[plan_key].append(result)
                 else:
                     results_by_plan["premium"].append(result)
-                results_by_plan[plan_key if (plan_key and plan_key in results_by_plan) else "premium"].append("\n" + "="*65 + "\n")
+                target_key = plan_key if (plan_key and plan_key in results_by_plan) else "premium"
+                results_by_plan[target_key].append("\n" + "="*65 + "\n")
                 stats['valid'] += 1
             elif result_type == "free":
                 results_by_plan["free"].append(result)
@@ -1428,14 +1474,8 @@ Speed: {spd:.2f} accounts/second
         await status_msg.delete()
         await update.message.reply_text(final)
         
-        for plan, results in results_by_plan.items():
-            if results and plan != "partial":
-                all_results = "".join(results)
-                buf = BytesIO()
-                buf.write(all_results.encode('utf-8'))
-                buf.seek(0)
-                filename = f"{plan.upper()}_ACCOUNTS.txt"
-                await update.message.reply_document(document=buf, filename=filename, caption=f"📄 {len(results)} {plan.upper()} Accounts Found")
+        # إرسال الملفات مع التقسيم إذا كانت كبيرة
+        await send_large_results(update, results_by_plan, max_per_file=20)
         
         if results_by_plan["partial"]:
             all_partial = "".join(results_by_plan["partial"])
@@ -1447,7 +1487,7 @@ Speed: {spd:.2f} accounts/second
     user_tasks[uid]['active'] = False
 
 
-# ==================== ZIP FILE HANDLER (معدل للتحديث السريع) ====================
+# ==================== ZIP FILE HANDLER ====================
 
 async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global stats
@@ -1550,12 +1590,12 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                         result_lines, plan_key = format_result_beautiful(info, is_sub, bundle.get("netscape_text", ""), cf, nftoken, config, response_text)
                                         res = "\n".join(result_lines)
                                     
-                                    # ========== التعديل المهم هنا ==========
                                     if plan_key in results_by_plan:
                                         results_by_plan[plan_key].append(res)
                                     else:
                                         results_by_plan["premium"].append(res)
-                                    results_by_plan[plan_key if plan_key in results_by_plan else "premium"].append("\n" + "="*65 + "\n")
+                                    target_key = plan_key if plan_key in results_by_plan else "premium"
+                                    results_by_plan[target_key].append("\n" + "="*65 + "\n")
                                     stats['valid'] += 1
                                 else:
                                     result_lines, plan_key = format_result_beautiful(info, is_sub, bundle.get("netscape_text", ""), cf, None, config, response_text)
@@ -1641,14 +1681,8 @@ Speed: {spd:.2f} files/second
             await msg.delete()
             await update.message.reply_text(final)
             
-            for plan, results in results_by_plan.items():
-                if results and plan != "partial":
-                    all_results = "".join(results)
-                    buf = BytesIO()
-                    buf.write(all_results.encode('utf-8'))
-                    buf.seek(0)
-                    filename = f"{plan.upper()}_ACCOUNTS.txt"
-                    await update.message.reply_document(document=buf, filename=filename, caption=f"📄 {len(results)} {plan.upper()} Accounts Found")
+            # إرسال الملفات مع التقسيم إذا كانت كبيرة
+            await send_large_results(update, results_by_plan, max_per_file=20)
             
             if results_by_plan["partial"]:
                 all_partial = "".join(results_by_plan["partial"])
@@ -1695,7 +1729,14 @@ def main():
     print("Bot is starting...")
     print("="*50)
     
-    app = Application.builder().token(BOT_TOKEN).build()
+    # زيادة وقت المهلة لتجنب فشل إرسال الملفات الكبيرة
+    request = HTTPXRequest(
+        connect_timeout=30.0,
+        read_timeout=120.0,
+        write_timeout=60.0,
+    )
+    app = Application.builder().token(BOT_TOKEN).request(request).build()
+    
     app.add_handler(CommandHandler("start", bot_start))
     app.add_handler(CommandHandler("help", bot_help))
     app.add_handler(CommandHandler("stats", bot_stats))
@@ -1704,7 +1745,6 @@ def main():
     app.add_handler(CommandHandler("cancel", bot_cancel))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
     
-    import asyncio
     try:
         asyncio.get_event_loop().run_until_complete(set_commands(app))
     except:
