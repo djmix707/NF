@@ -1070,47 +1070,6 @@ Membership: {partial_info.get('membershipStatus', 'Unknown')}
             return None, None, f"HTTP {status_code}"
 
 
-# ==================== SEND RESULTS (بدون FREE) ====================
-
-async def send_results(update, results_by_plan, max_per_file=30):
-    """إرسال النتائج - فقط Premium, Standard, Basic, Mobile (بدون FREE)"""
-    for plan in ["premium", "standard", "basic", "mobile"]:
-        results = results_by_plan.get(plan, [])
-        if not results:
-            continue
-        
-        total_accounts = len(results) // 2
-        chunk_size = max_per_file * 2
-        total_chunks = (len(results) + chunk_size - 1) // chunk_size
-        
-        for chunk_idx in range(total_chunks):
-            start_idx = chunk_idx * chunk_size
-            end_idx = min((chunk_idx + 1) * chunk_size, len(results))
-            chunk_results = results[start_idx:end_idx]
-            
-            if not chunk_results:
-                continue
-            
-            chunk_text = "".join(chunk_results)
-            buf = BytesIO()
-            buf.write(chunk_text.encode('utf-8'))
-            buf.seek(0)
-            
-            accounts_in_chunk = len(chunk_results) // 2
-            if total_chunks == 1:
-                filename = f"{plan.upper()}_ACCOUNTS.txt"
-                caption = f"📄 {total_accounts} {plan.upper()} Accounts Found"
-            else:
-                filename = f"{plan.upper()}_ACCOUNTS_part{chunk_idx+1}_of_{total_chunks}.txt"
-                caption = f"📄 Part {chunk_idx+1}/{total_chunks} - {accounts_in_chunk} {plan.upper()} Accounts"
-            
-            try:
-                await update.message.reply_document(document=buf, filename=filename, caption=caption)
-                await asyncio.sleep(0.3)
-            except Exception as e:
-                print(f"Error sending {filename}: {e}")
-
-
 # ==================== SINGLE FILE HANDLER ====================
 
 async def handle_single_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1188,7 +1147,7 @@ async def handle_single_file(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 results_by_plan[target_key].append("")
                 stats['valid'] += 1
             elif result_type == "free":
-                # لا نضيف الحسابات FREE إلى النتائج (نتجاهلها تماماً)
+                # تجاهل الحسابات FREE - لا نضيفها للملفات
                 stats['free'] += 1
             elif result_type == "partial":
                 results_by_plan["partial"].append(result)
@@ -1225,8 +1184,21 @@ Speed: {spd:.2f} accounts/second
         await status_msg.delete()
         await update.message.reply_text(final)
         
-        # إرسال الملفات (Premium, Standard, Basic, Mobile فقط)
-        await send_results(update, results_by_plan, max_per_file=30)
+        # ========== إرسال الملفات مباشرة (Premium, Standard, Basic, Mobile فقط) ==========
+        for plan in ["premium", "standard", "basic", "mobile"]:
+            results = results_by_plan.get(plan, [])
+            if results:
+                all_text = "".join(results)
+                buf = BytesIO()
+                buf.write(all_text.encode('utf-8'))
+                buf.seek(0)
+                filename = f"{plan.upper()}_ACCOUNTS.txt"
+                await update.message.reply_document(
+                    document=buf, 
+                    filename=filename, 
+                    caption=f"📄 {len(results)//2} {plan.upper()} Accounts Found"
+                )
+                await asyncio.sleep(0.5)
         
         if results_by_plan["partial"]:
             all_partial = "".join(results_by_plan["partial"])
@@ -1234,6 +1206,7 @@ Speed: {spd:.2f} accounts/second
             buf.write(all_partial.encode('utf-8'))
             buf.seek(0)
             await update.message.reply_document(document=buf, filename="PARTIAL_DATA.txt", caption=f"⚠️ {len(results_by_plan['partial']) // 2} Accounts with Limited Data")
+        # ========== نهاية إرسال الملفات ==========
     
     user_tasks[uid]['active'] = False
 
@@ -1340,7 +1313,7 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                     stats['valid'] += 1
                                     premium_count += 1
                                 else:
-                                    # تجاهل الحسابات FREE تماماً
+                                    # تجاهل الحسابات FREE
                                     stats['free'] += 1
                                     free_count += 1
                             else:
@@ -1402,8 +1375,21 @@ Speed: {spd:.2f} accounts/second
             await msg.delete()
             await update.message.reply_text(final)
             
-            # إرسال الملفات (Premium, Standard, Basic, Mobile فقط)
-            await send_results(update, results_by_plan, max_per_file=30)
+            # ========== إرسال الملفات مباشرة (Premium, Standard, Basic, Mobile فقط) ==========
+            for plan in ["premium", "standard", "basic", "mobile"]:
+                results = results_by_plan.get(plan, [])
+                if results:
+                    all_text = "".join(results)
+                    buf = BytesIO()
+                    buf.write(all_text.encode('utf-8'))
+                    buf.seek(0)
+                    filename = f"{plan.upper()}_ACCOUNTS.txt"
+                    await update.message.reply_document(
+                        document=buf, 
+                        filename=filename, 
+                        caption=f"📄 {len(results)//2} {plan.upper()} Accounts Found"
+                    )
+                    await asyncio.sleep(0.5)
             
             if results_by_plan["partial"]:
                 all_partial = "".join(results_by_plan["partial"])
@@ -1411,6 +1397,7 @@ Speed: {spd:.2f} accounts/second
                 buf.write(all_partial.encode('utf-8'))
                 buf.seek(0)
                 await update.message.reply_document(document=buf, filename="PARTIAL_DATA.txt", caption=f"⚠️ {len(results_by_plan['partial']) // 2} Accounts with Limited Data")
+            # ========== نهاية إرسال الملفات ==========
         else:
             await msg.edit_text("⏹️ Task was cancelled")
             
