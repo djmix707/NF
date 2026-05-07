@@ -7,7 +7,6 @@ import sys
 import time
 import zipfile
 import asyncio
-import tempfile
 from datetime import datetime, timedelta
 from io import BytesIO
 
@@ -686,7 +685,7 @@ def extract_all_account_details(html_content, info_dict):
             r'"userEmail"\s*:\s*"([^"]+@[^"]+\.[^"]+)"',
             r'<span[^>]*data-uia="email"[^>]*>([^<]+@[^<]+)</span>',
             r'<div[^>]*class="email"[^>]*>([^<]+@[^<]+)</div>',
-            r'([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})',  # أي إيميل في الصفحة
+            r'([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})',
         ]
         for pattern in email_patterns:
             match = re.search(pattern, html_content, re.IGNORECASE)
@@ -809,7 +808,6 @@ def format_result_beautiful(info, is_subscribed, cookie_content, cookie_filename
     if config is None:
         config = load_config()
     
-    # استخراج البيانات الناقصة من HTML
     info = extract_all_account_details(html_content, info)
     
     plan_key, plan_label = derive_plan_info(info, is_subscribed)
@@ -1181,7 +1179,6 @@ async def handle_single_file(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 results_by_plan[target_key].append("")
                 stats['valid'] += 1
             elif result_type == "free":
-                # تجاهل الحسابات FREE - لا نضيفها للملفات
                 stats['free'] += 1
             elif result_type == "partial":
                 results_by_plan["partial"].append(result)
@@ -1218,45 +1215,57 @@ Speed: {spd:.2f} accounts/second
         await status_msg.delete()
         await update.message.reply_text(final)
         
-        # ========== إرسال الملفات ==========
+        # ========== إرسال الملفات بالتأكيد ==========
+        await update.message.reply_text("📤 Sending result files...")
+        
         for plan in ["premium", "standard", "basic", "mobile"]:
             results = results_by_plan.get(plan, [])
+            account_count = len(results) // 2
             if results:
+                await update.message.reply_text(f"📝 Preparing {plan.upper()} file ({account_count} accounts)...")
+                
                 all_text = "".join(results)
-                # حفظ في ملف مؤقت
-                with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', suffix='.txt', delete=False) as tmp_file:
-                    tmp_file.write(all_text)
-                    tmp_path = tmp_file.name
+                tmp_path = f"/tmp/{plan}_accounts.txt"
+                with open(tmp_path, 'w', encoding='utf-8') as f:
+                    f.write(all_text)
                 
                 try:
                     with open(tmp_path, 'rb') as f:
                         await update.message.reply_document(
                             document=f, 
                             filename=f"{plan.upper()}_ACCOUNTS.txt", 
-                            caption=f"📄 {len(results)//2} {plan.upper()} Accounts Found"
+                            caption=f"📄 {account_count} {plan.upper()} Accounts Found"
                         )
-                    await asyncio.sleep(1)
+                    await update.message.reply_text(f"✅ {plan.upper()} file sent!")
+                    await asyncio.sleep(0.5)
                 except Exception as e:
-                    print(f"Error sending {plan}: {e}")
+                    await update.message.reply_text(f"❌ Error sending {plan.upper()}: {str(e)[:100]}")
                 finally:
                     try:
-                        os.unlink(tmp_path)
+                        os.remove(tmp_path)
                     except:
                         pass
+            else:
+                await update.message.reply_text(f"ℹ️ No {plan.upper()} accounts found")
         
         if results_by_plan["partial"]:
             all_partial = "".join(results_by_plan["partial"])
-            with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', suffix='.txt', delete=False) as tmp_file:
-                tmp_file.write(all_partial)
-                tmp_path = tmp_file.name
+            tmp_path = "/tmp/partial_data.txt"
+            with open(tmp_path, 'w', encoding='utf-8') as f:
+                f.write(all_partial)
             try:
                 with open(tmp_path, 'rb') as f:
                     await update.message.reply_document(document=f, filename="PARTIAL_DATA.txt", caption=f"⚠️ {len(results_by_plan['partial']) // 2} Accounts with Limited Data")
+                await update.message.reply_text("✅ PARTIAL file sent!")
+            except Exception as e:
+                await update.message.reply_text(f"❌ Error sending PARTIAL: {str(e)[:100]}")
             finally:
                 try:
-                    os.unlink(tmp_path)
+                    os.remove(tmp_path)
                 except:
                     pass
+        
+        await update.message.reply_text("✅ All files processed successfully!")
         # ========== نهاية إرسال الملفات ==========
     
     user_tasks[uid]['active'] = False
@@ -1300,7 +1309,6 @@ async def handle_zip_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 user_tasks[uid]['active'] = False
                 return
             
-            # حساب العدد الإجمالي للكوكيز أولاً
             await msg.edit_text(f"📊 Scanning ZIP contents...")
             for cf in files:
                 content = zf.read(cf).decode('utf-8', errors='ignore')
@@ -1425,44 +1433,56 @@ Speed: {spd:.2f} accounts/second
             await msg.delete()
             await update.message.reply_text(final)
             
-            # إرسال الملفات
+            await update.message.reply_text("📤 Sending result files...")
+            
             for plan in ["premium", "standard", "basic", "mobile"]:
                 results = results_by_plan.get(plan, [])
+                account_count = len(results) // 2
                 if results:
+                    await update.message.reply_text(f"📝 Preparing {plan.upper()} file ({account_count} accounts)...")
+                    
                     all_text = "".join(results)
-                    with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', suffix='.txt', delete=False) as tmp_file:
-                        tmp_file.write(all_text)
-                        tmp_path = tmp_file.name
+                    tmp_path = f"/tmp/{plan}_accounts.txt"
+                    with open(tmp_path, 'w', encoding='utf-8') as f:
+                        f.write(all_text)
                     
                     try:
                         with open(tmp_path, 'rb') as f:
                             await update.message.reply_document(
                                 document=f, 
                                 filename=f"{plan.upper()}_ACCOUNTS.txt", 
-                                caption=f"📄 {len(results)//2} {plan.upper()} Accounts Found"
+                                caption=f"📄 {account_count} {plan.upper()} Accounts Found"
                             )
-                        await asyncio.sleep(1)
+                        await update.message.reply_text(f"✅ {plan.upper()} file sent!")
+                        await asyncio.sleep(0.5)
                     except Exception as e:
-                        print(f"Error sending {plan}: {e}")
+                        await update.message.reply_text(f"❌ Error sending {plan.upper()}: {str(e)[:100]}")
                     finally:
                         try:
-                            os.unlink(tmp_path)
+                            os.remove(tmp_path)
                         except:
                             pass
+                else:
+                    await update.message.reply_text(f"ℹ️ No {plan.upper()} accounts found")
             
             if results_by_plan["partial"]:
                 all_partial = "".join(results_by_plan["partial"])
-                with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', suffix='.txt', delete=False) as tmp_file:
-                    tmp_file.write(all_partial)
-                    tmp_path = tmp_file.name
+                tmp_path = "/tmp/partial_data.txt"
+                with open(tmp_path, 'w', encoding='utf-8') as f:
+                    f.write(all_partial)
                 try:
                     with open(tmp_path, 'rb') as f:
                         await update.message.reply_document(document=f, filename="PARTIAL_DATA.txt", caption=f"⚠️ {len(results_by_plan['partial']) // 2} Accounts with Limited Data")
+                    await update.message.reply_text("✅ PARTIAL file sent!")
+                except Exception as e:
+                    await update.message.reply_text(f"❌ Error sending PARTIAL: {str(e)[:100]}")
                 finally:
                     try:
-                        os.unlink(tmp_path)
+                        os.remove(tmp_path)
                     except:
                         pass
+            
+            await update.message.reply_text("✅ All files processed successfully!")
         else:
             await msg.edit_text("⏹️ Task was cancelled")
             
@@ -1502,7 +1522,6 @@ def main():
     print("Bot is starting...")
     print("="*50)
     
-    # إعدادات مهلة مناسبة لـ Railway
     request = HTTPXRequest(
         connect_timeout=30.0,
         read_timeout=90.0,
