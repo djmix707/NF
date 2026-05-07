@@ -228,7 +228,7 @@ def clean_text(text):
     return text.strip()
 
 def fix_unicode(text):
-    """تحويل رموز \uXXXX إلى حروف حقيقية"""
+
     if not text:
         return text
     try:
