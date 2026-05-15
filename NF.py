@@ -190,6 +190,8 @@ def format_membership_status(status):
     status_lower = status.lower()
     if "current_member" in status_lower:
         return "Active"
+    elif "former_member" in status_lower:
+        return "Expired"
     elif "cancelled" in status_lower:
         return "Cancelled"
     elif "expired" in status_lower:
