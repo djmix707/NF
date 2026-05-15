@@ -1,10 +1,8 @@
-# bot.py - نسخة Railway
+# bot.py - نسخة Railway (بتقرأ كل الكوكيز في الملف)
 import os
 import re
 import json
-import random
 import zipfile
-import unicodedata
 import html
 import time
 from datetime import datetime
@@ -17,11 +15,11 @@ from urllib3.exceptions import InsecureRequestWarning
 
 requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
 
-# ======================== توكن البوت من البيئة ========================
+# ======================== توكن البوت ========================
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 
 if not BOT_TOKEN:
-    print("❌ ERROR: BOT_TOKEN not found! Please add it in Railway environment variables.")
+    print("❌ ERROR: BOT_TOKEN not found!")
     exit(1)
 
 # ======================== الإعدادات ========================
@@ -112,7 +110,7 @@ def create_mobile_link(token):
         return None
     return f"https://netflix.com/unsupported?nftoken={token}"
 
-# ======================== دوال الفحص ========================
+# ======================== دوال الفحص الأساسية ========================
 def decode_value(value):
     if value is None:
         return None
@@ -203,69 +201,90 @@ def format_membership_status(status):
     else:
         return status.title()
 
-def extract_cookies_from_netscape(content):
-    cookies = {}
-    lines = content.split('\n')
-    
-    for line in lines:
-        line = line.strip()
-        if not line or line.startswith('#'):
-            continue
-        
-        parts = line.split('\t')
-        if len(parts) >= 7:
-            name = parts[5]
-            value = parts[6]
-            
-            if name == 'NetflixId':
-                cookies['NetflixId'] = value
-            elif name == 'SecureNetflixId':
-                cookies['SecureNetflixId'] = value
-    
-    return cookies if cookies.get('NetflixId') else None
-
-def extract_cookies_from_simple_format(content):
-    cookies = {}
-    
-    nf_match = re.search(r'NetflixId[=\s]+([^\s\n\t;]+)', content)
-    if nf_match:
-        cookies["NetflixId"] = nf_match.group(1).strip('"')
-    
-    snf_match = re.search(r'SecureNetflixId[=\s]+([^\s\n\t;]+)', content)
-    if snf_match:
-        cookies["SecureNetflixId"] = snf_match.group(1).strip('"')
-    
-    return cookies if cookies.get('NetflixId') else None
-
+# ======================== دوال استخراج الكوكيز (المعدلة) ========================
 def extract_all_cookies_from_file(content):
+    """استخراج جميع الكوكيز من النص - يقرأ كل الكوكيز في الملف"""
     accounts = []
     
-    netscape_cookies = extract_cookies_from_netscape(content)
-    if netscape_cookies and netscape_cookies.get("NetflixId"):
-        accounts.append({"cookies": netscape_cookies, "raw": content[:200]})
+    if not content or not content.strip():
         return accounts
     
-    simple_cookies = extract_cookies_from_simple_format(content)
-    if simple_cookies and simple_cookies.get("NetflixId"):
-        accounts.append({"cookies": simple_cookies, "raw": content[:200]})
-        return accounts
+    # ============================================================
+    # الطريقة 1: البحث عن كل NetflixId في النص (للتنسيق البسيط)
+    # ============================================================
+    pattern = r'NetflixId[=\t\s]+([^\s\n\t;]+)'
+    all_matches = list(re.finditer(pattern, content))
     
-    parts = re.split(r'(?=NetflixId[=\t])', content)
-    for part in parts:
-        if not part.strip():
-            continue
-        
+    for match in all_matches:
         cookies = {}
-        nf_match = re.search(r'NetflixId[=\t]+([^\s\n\t;]+)', part)
-        if nf_match:
-            cookies["NetflixId"] = nf_match.group(1).strip('"')
+        nf_value = match.group(1).strip('"')
         
-        snf_match = re.search(r'SecureNetflixId[=\t]+([^\s\n\t;]+)', part)
+        # منع التكرار
+        if any(acc['cookies'].get('NetflixId') == nf_value for acc in accounts):
+            continue
+            
+        cookies['NetflixId'] = nf_value
+        
+        # البحث عن SecureNetflixId في نفس المنطقة
+        start = match.start()
+        end = min(start + 500, len(content))
+        nearby_text = content[start:end]
+        
+        snf_pattern = r'SecureNetflixId[=\t\s]+([^\s\n\t;]+)'
+        snf_match = re.search(snf_pattern, nearby_text)
         if snf_match:
-            cookies["SecureNetflixId"] = snf_match.group(1).strip('"')
+            cookies['SecureNetflixId'] = snf_match.group(1).strip('"')
         
-        if cookies.get("NetflixId"):
-            accounts.append({"cookies": cookies, "raw": part[:200]})
+        accounts.append({"cookies": cookies, "raw": f"account_{len(accounts)+1}"})
+    
+    # ============================================================
+    # الطريقة 2: تنسيق Netscape (لو الطريقة الأولى مجابتش حاجة)
+    # ============================================================
+    if not accounts:
+        netscape_cookies = {}
+        lines = content.split('\n')
+        
+        for line in lines:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            
+            parts = line.split('\t')
+            if len(parts) >= 7:
+                name = parts[5]
+                value = parts[6]
+                
+                if name == 'NetflixId':
+                    netscape_cookies['NetflixId'] = value
+                elif name == 'SecureNetflixId':
+                    netscape_cookies['SecureNetflixId'] = value
+        
+        if netscape_cookies.get('NetflixId'):
+            accounts.append({"cookies": netscape_cookies, "raw": "netscape_format"})
+    
+    # ============================================================
+    # الطريقة 3: تقسيم النص على أساس NetflixId (للتنسيق المتعدد)
+    # ============================================================
+    if not accounts:
+        parts = re.split(r'(?=NetflixId[=\t])', content)
+        
+        for part in parts:
+            if not part.strip():
+                continue
+            
+            cookies = {}
+            
+            nf_match = re.search(r'NetflixId[=\t]+([^\s\n\t;]+)', part)
+            if nf_match:
+                cookies["NetflixId"] = nf_match.group(1).strip('"')
+            
+            snf_match = re.search(r'SecureNetflixId[=\t]+([^\s\n\t;]+)', part)
+            if snf_match:
+                cookies["SecureNetflixId"] = snf_match.group(1).strip('"')
+            
+            if cookies.get("NetflixId"):
+                if not any(acc['cookies'].get('NetflixId') == cookies['NetflixId'] for acc in accounts):
+                    accounts.append({"cookies": cookies, "raw": part[:200]})
     
     return accounts
 
@@ -951,8 +970,8 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             for acc in accounts:
                                 acc["source"] = name
                                 all_accounts.append(acc)
-        except:
-            await update.message.reply_text("❌ Failed to extract ZIP file")
+        except Exception as e:
+            await update.message.reply_text(f"❌ Failed to extract ZIP file: {str(e)[:50]}")
             return
     else:
         content = file_bytes.decode("utf-8", errors="ignore")
@@ -1224,6 +1243,7 @@ def main():
     
     print("=" * 50)
     print("✅ Netflix Checker Bot is running...")
+    print("✅ Now reads ALL cookies in the file (not just the first one)")
     print("=" * 50)
     
     app.run_polling(allowed_updates=Update.ALL_TYPES)
