@@ -1,4 +1,4 @@
-# NF.py - نسخة Railway (Async + Cancel فوري + 13 طريقة للبروفايلات)
+# NF.py - Netflix Cookies Checker Bot (Async + Full Features)
 import os
 import re
 import json
@@ -129,57 +129,103 @@ def country_to_flag(code):
     return ""
 
 def format_date(value):
+    """إصلاح مشكلة التواريخ - بترجع التاريخ بصيغة واضحة"""
     if not value:
         return "Unknown"
-    for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S"):
+    
+    value_str = str(value).strip()
+    
+    # لو التاريخ بصيغة ISO (YYYY-MM-DD)
+    iso_match = re.match(r'^(\d{4})-(\d{2})-(\d{2})', value_str)
+    if iso_match:
         try:
-            return datetime.strptime(value[:19], fmt).strftime("%B %d, %Y")
+            year, month, day = iso_match.groups()
+            dt = datetime(int(year), int(month), int(day))
+            return dt.strftime("%B %d, %Y")
         except:
             pass
-    return value
+    
+    # لو التاريخ بصيغة Unix timestamp (milliseconds)
+    if value_str.isdigit() and len(value_str) >= 10:
+        try:
+            ts = int(value_str)
+            if len(value_str) == 13:  # milliseconds
+                ts = ts / 1000
+            dt = datetime.fromtimestamp(ts)
+            # لو التاريخ بعيد جداً، يبقى مش timestamp صح
+            if 2000 <= dt.year <= 2100:
+                return dt.strftime("%B %d, %Y")
+        except:
+            pass
+    
+    # محاولات تنسيقات تانية
+    for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d",
+                "%m/%d/%Y", "%d/%m/%Y", "%B %d, %Y", "%b %d, %Y"):
+        try:
+            dt = datetime.strptime(value_str[:19], fmt)
+            return dt.strftime("%B %d, %Y")
+        except:
+            pass
+    
+    return value_str
 
 def parse_member_since(value):
+    """إصلاح مشكلة Member Since"""
     if not value:
         return "Unknown"
-
-    value = decode_value(value) or value
-    value_lower = value.lower()
-
-    months = {
-        'january': 'January', 'januar': 'January', 'enero': 'January', 'janvier': 'January', 'janeiro': 'January',
-        'february': 'February', 'februar': 'February', 'febrero': 'February', 'fevrier': 'February', 'fevereiro': 'February',
-        'march': 'March', 'marz': 'March', 'marzo': 'March', 'mars': 'March', 'marco': 'March',
-        'april': 'April', 'abril': 'April', 'avril': 'April', 'abrile': 'April',
-        'may': 'May', 'mai': 'May', 'mayo': 'May', 'maio': 'May',
-        'june': 'June', 'juni': 'June', 'junio': 'June', 'juin': 'June', 'junho': 'June',
-        'july': 'July', 'juli': 'July', 'julio': 'July', 'juillet': 'July', 'julho': 'July',
-        'august': 'August', 'agosto': 'August', 'aout': 'August', 'agost': 'August',
-        'september': 'September', 'septiembre': 'September', 'septembre': 'September', 'setembro': 'September',
-        'october': 'October', 'oktober': 'October', 'octubre': 'October', 'octobre': 'October', 'outubro': 'October',
-        'november': 'November', 'noviembre': 'November', 'novembre': 'November', 'novembro': 'November',
-        'december': 'December', 'dezember': 'December', 'diciembre': 'December', 'decembre': 'December', 'dezembro': 'December',
-        'jan': 'January', 'feb': 'February', 'mar': 'March', 'apr': 'April', 'may': 'May', 'jun': 'June',
-        'jul': 'July', 'aug': 'August', 'sep': 'September', 'oct': 'October', 'nov': 'November', 'dec': 'December',
+    
+    value_str = str(value).strip()
+    
+    # أولاً: لو تاريخ ISO
+    iso_match = re.match(r'^(\d{4})-(\d{2})-(\d{2})', value_str)
+    if iso_match:
+        try:
+            year, month, day = iso_match.groups()
+            dt = datetime(int(year), int(month), int(day))
+            return dt.strftime("%B %Y")
+        except:
+            pass
+    
+    # ثانياً: محاولة استخراج الشهر والسنة من النص
+    value_decoded = decode_value(value_str) or value_str
+    value_lower = value_decoded.lower()
+    
+    months_map = {
+        'january': 'January', 'enero': 'January', 'janvier': 'January', 'janeiro': 'January',
+        'february': 'February', 'febrero': 'February', 'fevrier': 'February', 'fevereiro': 'February',
+        'march': 'March', 'marzo': 'March', 'mars': 'March',
+        'april': 'April', 'abril': 'April', 'avril': 'April',
+        'may': 'May', 'mayo': 'May', 'mai': 'May',
+        'june': 'June', 'junio': 'June', 'juin': 'June',
+        'july': 'July', 'julio': 'July', 'juillet': 'July',
+        'august': 'August', 'agosto': 'August', 'aout': 'August',
+        'september': 'September', 'septiembre': 'September', 'septembre': 'September',
+        'october': 'October', 'octubre': 'October', 'octobre': 'October',
+        'november': 'November', 'noviembre': 'November', 'novembre': 'November',
+        'december': 'December', 'diciembre': 'December', 'decembre': 'December',
     }
-
-    for mon_key, mon_name in months.items():
+    
+    for mon_key, mon_name in months_map.items():
         if mon_key in value_lower:
-            year_match = re.search(r'(19|20)\d{2}', value)
+            year_match = re.search(r'(19|20)\d{2}', value_decoded)
             if year_match:
                 year = year_match.group()
-                return f"{mon_name} {year}"
+                # ✅ نتأكد إن السنة منطقية (مش 2026 اللي ممكن تكون غلط)
+                if 1997 <= int(year) <= 2025:
+                    return f"{mon_name} {year}"
+                else:
+                    return f"{mon_name} {year}"
             return mon_name
-
-    numbers = re.findall(r'\d+', value)
+    
+    # ثالثاً: أرقام
+    numbers = re.findall(r'\d+', value_decoded)
     if len(numbers) >= 2:
-        possible_month = int(numbers[0]) if int(numbers[0]) <= 12 else None
-        possible_year = numbers[-1]
-        if possible_month and len(possible_year) == 4:
-            months_list = ['January', 'February', 'March', 'April', 'May', 'June',
-                          'July', 'August', 'September', 'October', 'November', 'December']
-            return f"{months_list[possible_month-1]} {possible_year}"
-
-    return value
+        # نجرب نلاقي سنة
+        for num in numbers:
+            if len(num) == 4 and 1997 <= int(num) <= 2025:
+                return f"Year {num}"
+    
+    return value_decoded
 
 def format_member_since(value):
     return parse_member_since(value) if value else "Unknown"
@@ -210,7 +256,7 @@ def extract_all_cookies_from_file(content):
     if not content or not content.strip():
         return accounts
 
-    # الطريقة 1: البحث عن كل NetflixId
+    # الطريقة 1: NetflixId
     pattern = r'NetflixId[=\t\s]+([^\s\n\t;]+)'
     all_matches = list(re.finditer(pattern, content))
 
@@ -257,7 +303,7 @@ def extract_all_cookies_from_file(content):
         if netscape_cookies.get('NetflixId'):
             accounts.append({"cookies": netscape_cookies, "raw": "netscape_format"})
 
-    # الطريقة 3: تقسيم النص
+    # الطريقة 3: تقسيم
     if not accounts:
         parts = re.split(r'(?=NetflixId[=\t])', content)
 
@@ -355,35 +401,110 @@ def extract_payment_method(html_content):
 
     return None
 
-# ======================== دوال استخراج البروفايلات (13 طريقة) ========================
+# ======================== دوال استخراج البروفايلات (محسّنة) ========================
+def _find_profile_names_in_json(obj, depth=0):
+    """دالة recursive للبحث عن أسماء البروفايلات جوه JSON"""
+    names = []
+    if depth > 10:
+        return names
+    try:
+        if isinstance(obj, dict):
+            keys_lower = [str(k).lower() for k in obj.keys()]
+            is_profile_obj = any('profile' in k or 'avatar' in k for k in keys_lower)
+
+            if is_profile_obj:
+                for key in ['name', 'profileName', 'displayName']:
+                    if key in obj and isinstance(obj[key], str):
+                        names.append(obj[key])
+
+            for v in obj.values():
+                names.extend(_find_profile_names_in_json(v, depth + 1))
+        elif isinstance(obj, list):
+            for item in obj:
+                names.extend(_find_profile_names_in_json(item, depth + 1))
+    except:
+        pass
+    return names
+
 async def extract_all_profiles_from_manage(session):
     profiles = []
-
-    forbidden_names = [
-        'add profile', 'add', 'اضافة', 'إضافة', 'اضافة بروفايل', 'إضافة بروفايل',
-        'new profile', 'create profile', 'اضف بروفايل', 'add new', 'addnew',
-        'اضف', 'profile add', 'plus', '+', 'اضافة ملف', 'انشاء', 'create',
-        'add profile', 'add a profile', 'new', 'make a profile'
-    ]
 
     def is_valid_profile(name):
         if not name:
             return False
-        name_lower = name.lower().strip()
-        if len(name) < 1:
+        
+        name_clean = str(name).strip()
+        name_lower = name_clean.lower()
+        
+        # ✅ قائمة موسعة شاملة لأسماء UI والأدوار
+        forbidden_exact = {
+            # UI Elements
+            'add', 'add profile', 'add a profile', 'add new', 'addnew', 'add new profile',
+            'new', 'new profile', 'create', 'create profile', 'make a profile',
+            'manage', 'manage profile', 'manage profiles', 'manage profiles:',
+            'edit', 'edit profile', 'edit profiles',
+            'delete', 'delete profile', 'remove', 'remove profile',
+            'switch', 'switch profile', 'switch profiles',
+            'see all', 'see more', 'show all', 'show more', 'view all', 'load more',
+            'done', 'cancel', 'save', 'close', 'back', 'next', 'previous',
+            'sign in', 'sign out', 'signin', 'signout', 'login', 'logout',
+            'register', 'home', 'menu', 'help', 'support', 'contact',
+            'profiles', 'profile', 'account', 'settings',
+            'netflix', 'name', 'username', 'email',
+            # Roles/Labels
+            'admin', 'administrator', 'owner', 'master', 'primary', 'main',
+            'secondary', 'default', 'guest', 'user', 'member', 'host',
+            'moderator', 'mod', 'root', 'superuser', 'super admin', 'superadmin',
+            # Arabic
+            'اضافة', 'إضافة', 'اضافة بروفايل', 'إضافة بروفايل', 'اضف بروفايل',
+            'اضف', 'تعديل', 'حذف', 'رجوع', 'خروج', 'حسابي',
+            'ادارة الملفات', 'إدارة الملفات', 'الملف الشخصي',
+            'الكل', 'الرئيسية', 'مساعدة',
+        }
+        
+        # لو الاسم بالظبط في القائمة الممنوعة
+        if name_lower in forbidden_exact:
             return False
-        if name_lower in forbidden_names:
+        
+        # لو الاسم فيه نقطتين في الآخر (زي "Manage Profiles:")
+        if name_clean.rstrip().endswith(':'):
             return False
-        if any(forbidden == name_lower for forbidden in forbidden_names):
+        
+        # فلاتر أساسية
+        if len(name_clean) < 1:
             return False
         if name_lower.startswith('http') or name_lower.startswith('www'):
             return False
-        if name.isdigit():
+        if name_clean.isdigit():
             return False
+        if len(name_clean) > 40:
+            return False
+        
+        # ✅ فحص الكلمات الممنوعة كـ substring
+        forbidden_substrings = [
+            'manage profile', 'edit profile', 'add profile', 'create profile',
+            'switch profile', 'delete profile', 'remove profile',
+            'see all', 'show all', 'view all', 'load more',
+            'sign in', 'sign out', 'log in', 'log out',
+            'administrator', 'super admin',
+        ]
+        
+        for forbidden in forbidden_substrings:
+            if forbidden in name_lower:
+                return False
+        
+        # ✅ لو الاسم قصير (كلمتين أو أقل) وفيه كلمة UI
+        words = name_lower.split()
+        if len(words) <= 2:
+            ui_words = {'manage', 'profile', 'profiles', 'edit', 'add', 'delete', 
+                       'remove', 'switch', 'see', 'show', 'view', 'all', 'more',
+                       'admin', 'owner', 'master', 'primary', 'default', 'guest'}
+            if any(w in ui_words for w in words):
+                return False
+        
         return True
 
     async def extract_from_page(url):
-        """دالة مساعدة لاستخراج البروفايلات من صفحة معينة"""
         page_profiles = []
         try:
             async with session.get(url, allow_redirects=True) as resp:
@@ -391,7 +512,7 @@ async def extract_all_profiles_from_manage(session):
                     return page_profiles
                 html_content = await resp.text()
 
-            # لو الصفحة صفحة تسجيل دخول، نرجع فاضي
+            # لو الصفحة صفحة تسجيل دخول
             if "signin" in html_content.lower()[:2000] and "logout" not in html_content.lower():
                 return page_profiles
 
@@ -422,7 +543,7 @@ async def extract_all_profiles_from_manage(session):
                     if is_valid_profile(pname) and pname not in page_profiles:
                         page_profiles.append(pname)
 
-            # الطريقة 4: class profile-name / data-uia
+            # الطريقة 4: class profile-name
             profile_classes = [
                 r'<span[^>]*class="[^"]*profile-name[^"]*"[^>]*>([^<]+)</span>',
                 r'<div[^>]*class="[^"]*profile-name[^"]*"[^>]*>([^<]+)</div>',
@@ -432,7 +553,6 @@ async def extract_all_profiles_from_manage(session):
                 r'<div[^>]*aria-label="Profile[^"]*"[^>]*>([^<]+)</div>',
                 r'<h1[^>]*class="[^"]*profile[^"]*"[^>]*>([^<]+)</h1>',
                 r'<h2[^>]*class="[^"]*profile[^"]*"[^>]*>([^<]+)</h2>',
-                # ✅ طرق إضافية خاصة بصفحة /account/profiles
                 r'<span[^>]*data-uia="profile-avatar-name"[^>]*>([^<]+)</span>',
                 r'<div[^>]*class="[^"]*profile-avatar[^"]*"[^>]*>.*?<span[^>]*>([^<]+)</span>',
                 r'<p[^>]*class="[^"]*profile[^"]*name[^"]*"[^>]*>([^<]+)</p>',
@@ -500,9 +620,7 @@ async def extract_all_profiles_from_manage(session):
                     if is_valid_profile(pname) and pname not in page_profiles:
                         page_profiles.append(pname)
 
-            # ============ ✅ طرق جديدة خاصة بـ /account/profiles ============
-
-            # الطريقة 11: "profileName" في JSON جوه <script>
+            # الطريقة 11: "profileName" في script
             if not page_profiles:
                 script_matches = re.findall(r'<script[^>]*>(.*?)</script>', html_content, re.DOTALL)
                 for script in script_matches:
@@ -513,7 +631,7 @@ async def extract_all_profiles_from_manage(session):
                             if is_valid_profile(pname) and pname not in page_profiles:
                                 page_profiles.append(pname)
 
-            # الطريقة 12: "name" جوه أي object فيه "profile" أو "avatar"
+            # الطريقة 12: name جوه object فيه profile
             if not page_profiles:
                 json_blocks = re.findall(r'\{[^{}]*"profile[^{}]*\}', html_content, re.IGNORECASE)
                 for block in json_blocks:
@@ -523,7 +641,7 @@ async def extract_all_profiles_from_manage(session):
                         if is_valid_profile(pname) and pname not in page_profiles:
                             page_profiles.append(pname)
 
-            # الطريقة 13: أسماء جوه data attributes
+            # الطريقة 13: data attributes
             if not page_profiles:
                 data_names = re.findall(r'data-[a-z-]*name="([^"]+)"', html_content, re.IGNORECASE)
                 for n in data_names:
@@ -531,7 +649,7 @@ async def extract_all_profiles_from_manage(session):
                     if is_valid_profile(pname) and pname not in page_profiles:
                         page_profiles.append(pname)
 
-            # الطريقة 14: JSON.parse من __NEXT_DATA__ أو initialState
+            # الطريقة 14: __NEXT_DATA__
             if not page_profiles:
                 next_data_match = re.search(r'<script[^>]*id="__NEXT_DATA__"[^>]*>(.*?)</script>', html_content, re.DOTALL)
                 if next_data_match:
@@ -564,32 +682,7 @@ async def extract_all_profiles_from_manage(session):
 
         return page_profiles
 
-    def _find_profile_names_in_json(obj, depth=0):
-        """دالة recursive للبحث عن أسماء البروفايلات جوه JSON"""
-        names = []
-        if depth > 10:
-            return names
-        try:
-            if isinstance(obj, dict):
-                # لو الـ dict ده فيه profile أو avatar
-                keys_lower = [str(k).lower() for k in obj.keys()]
-                is_profile_obj = any('profile' in k or 'avatar' in k for k in keys_lower)
-
-                if is_profile_obj:
-                    for key in ['name', 'profileName', 'displayName']:
-                        if key in obj and isinstance(obj[key], str):
-                            names.append(obj[key])
-
-                for v in obj.values():
-                    names.extend(_find_profile_names_in_json(v, depth + 1))
-            elif isinstance(obj, list):
-                for item in obj:
-                    names.extend(_find_profile_names_in_json(item, depth + 1))
-        except:
-            pass
-        return names
-
-    # ✅ نجرب الصفحتين بالترتيب
+    # نجرب الصفحتين
     profiles = await extract_from_page("https://www.netflix.com/ManageProfiles")
 
     if not profiles:
@@ -884,8 +977,8 @@ def format_account_details_for_chat(info, pc_link=None, mobile_link=None):
     if info.get('profiles_count') and info.get('profiles_count') > 0:
         lines.append(f"   👥 Total: {info.get('profiles_count')}")
         profiles_list = info.get('profiles_list', 'Unknown')
-        if len(profiles_list) > 50:
-            profiles_list = profiles_list[:47] + "..."
+        if len(profiles_list) > 100:
+            profiles_list = profiles_list[:97] + "..."
         lines.append(f"   📝 List: {profiles_list}")
     else:
         lines.append("   No profiles found")
@@ -1110,7 +1203,7 @@ async def send_partial_results(context, chat_id_param, reason="cancelled"):
         except Exception as e:
             print(f"[ERROR] Failed to send {out_filename}: {e}")
 
-# ======================== دالة الفحص الرئيسية (Task) ========================
+# ======================== دالة الفحص الرئيسية ========================
 async def run_scan(context, chat_id_param, all_accounts, is_text_mode=False):
     global checking, results, total_accounts, processed, stop_flag, msg_id
 
@@ -1210,7 +1303,6 @@ async def run_scan(context, chat_id_param, all_accounts, is_text_mode=False):
     except:
         pass
 
-    # لو اتلغى، نبعت النتائج الجزئية
     if stop_flag:
         await send_partial_results(context, chat_id_param, reason="cancelled")
         if is_text_mode:
@@ -1510,7 +1602,8 @@ def main():
     print("✅ Netflix Checker Bot is running...")
     print("✅ Async mode - /cancel responds INSTANTLY")
     print("✅ Enhanced profile extraction (15 methods)")
-    print("✅ Supports /ManageProfiles & /account/profiles")
+    print("✅ UI names filtered (Manage Profiles, Admin, etc.)")
+    print("✅ Date formatting fixed")
     print("=" * 50)
 
     app.run_polling(allowed_updates=Update.ALL_TYPES)
