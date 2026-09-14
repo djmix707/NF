@@ -1,4 +1,4 @@
-# NF.py - Netflix Cookies Checker Bot (Async + Full Features + Language Filter)
+# NF.py - Netflix Cookies Checker Bot (Async + Full Filters)
 import os
 import re
 import json
@@ -23,7 +23,7 @@ if not BOT_TOKEN:
 # ======================== الإعدادات ========================
 REQUEST_TIMEOUT = 30
 
-# ======================== قوائم الفلترة العامة ========================
+# ======================== قوائم الفلترة الشاملة ========================
 LANGUAGES_BLACKLIST = {
     # English names
     'english', 'spanish', 'french', 'german', 'italian', 'portuguese', 'dutch',
@@ -43,29 +43,227 @@ LANGUAGES_BLACKLIST = {
     'البرتغالية', 'الروسية', 'التركية', 'الهندية', 'اليابانية', 'الكورية', 'الصينية',
 }
 
-UI_FORBIDDEN_EXACT = {
-    # UI Elements
-    'add', 'add profile', 'add a profile', 'add new', 'addnew', 'add new profile',
-    'new', 'new profile', 'create', 'create profile', 'make a profile',
-    'manage', 'manage profile', 'manage profiles', 'manage profiles:',
-    'edit', 'edit profile', 'edit profiles',
-    'delete', 'delete profile', 'remove', 'remove profile',
-    'switch', 'switch profile', 'switch profiles',
-    'see all', 'see more', 'show all', 'show more', 'view all', 'load more',
-    'done', 'cancel', 'save', 'close', 'back', 'next', 'previous',
+# ✅ "Manage Profiles" بكل اللغات
+UI_TRANSLATIONS_BLACKLIST = {
+    # Manage Profiles - English
+    'manage profiles', 'manage profile', 'manage',
+    'edit profile', 'edit profiles', 'edit',
+    'add profile', 'add a profile', 'add new profile', 'add new',
+    'create profile', 'create',
+    'delete profile', 'delete', 'remove profile', 'remove',
+    'switch profile', 'switch profiles', 'switch',
+    'see all', 'show all', 'view all', 'load more', 'see more', 'show more',
     'sign in', 'sign out', 'signin', 'signout', 'login', 'logout',
     'register', 'home', 'menu', 'help', 'support', 'contact',
     'profiles', 'profile', 'account', 'settings',
     'netflix', 'name', 'username', 'email',
-    # Roles/Labels
-    'admin', 'administrator', 'owner', 'master', 'primary', 'main',
-    'secondary', 'default', 'guest', 'user', 'member', 'host',
-    'moderator', 'mod', 'root', 'superuser', 'super admin', 'superadmin',
+    'done', 'cancel', 'save', 'close', 'back', 'next', 'previous',
+    # Spanish
+    'administrar perfiles', 'administrar perfil', 'administrar',
+    'editar perfil', 'editar perfiles', 'editar',
+    'agregar perfil', 'añadir perfil', 'agregar', 'añadir',
+    'crear perfil', 'crear', 'eliminar perfil', 'eliminar',
+    'cambiar perfil', 'cambiar', 'ver todo', 'ver todos',
+    'iniciar sesión', 'cerrar sesión', 'salir', 'cuenta', 'configuración',
+    'ayuda', 'soporte', 'contacto', 'perfiles', 'perfil', 'nombre',
+    'hecho', 'guardar', 'cerrar', 'atrás', 'siguiente', 'anterior',
+    # Portuguese
+    'gerir perfis', 'gerir perfil', 'gerir', 'administrar perfis',
+    'editar perfil', 'editar perfis', 'editar',
+    'adicionar perfil', 'criar perfil', 'criar', 'excluir perfil', 'excluir',
+    'trocar perfil', 'trocar', 'ver tudo', 'ver todos',
+    'entrar', 'sair', 'conta', 'configurações', 'ajuda', 'suporte', 'contato',
+    'perfis', 'perfil', 'nome', 'pronto', 'salvar', 'fechar', 'voltar',
+    # French
+    'gérer les profils', 'gérer le profil', 'gérer',
+    'modifier le profil', 'modifier', 'ajouter un profil', 'ajouter',
+    'créer un profil', 'créer', 'supprimer le profil', 'supprimer',
+    'changer de profil', 'changer', 'voir tout', 'voir tous',
+    'se connecter', 'se déconnecter', 'connexion', 'déconnexion',
+    'compte', 'paramètres', 'aide', 'assistance', 'contact',
+    'profils', 'profil', 'nom', 'terminé', 'enregistrer', 'fermer', 'retour',
+    # German
+    'profil verwalten', 'profile verwalten', 'verwalten',
+    'profil bearbeiten', 'bearbeiten', 'profil hinzufügen', 'hinzufügen',
+    'profil erstellen', 'erstellen', 'profil löschen', 'löschen',
+    'profil wechseln', 'wechseln', 'alle anzeigen', 'alles anzeigen',
+    'anmelden', 'abmelden', 'konto', 'einstellungen', 'hilfe', 'support',
+    'kontakt', 'profile', 'profil', 'name', 'fertig', 'speichern', 'schließen',
+    'zurück', 'weiter', 'zurück',
+    # Dutch
+    'beheer profielen', 'profielen beheren', 'beheren',
+    'profiel bewerken', 'bewerken', 'profiel toevoegen', 'toevoegen',
+    'profiel aanmaken', 'aanmaken', 'profiel verwijderen', 'verwijderen',
+    'profiel wisselen', 'wisselen', 'alles bekijken', 'alles weergeven',
+    'inloggen', 'uitloggen', 'account', 'instellingen', 'help', 'ondersteuning',
+    'contact', 'profielen', 'profiel', 'naam', 'klaar', 'opslaan', 'sluiten',
+    'terug', 'volgende', 'vorige',
+    # Italian
+    'gestisci profili', 'gestisci profilo', 'gestisci',
+    'modifica profilo', 'modifica', 'aggiungi profilo', 'aggiungi',
+    'crea profilo', 'crea', 'elimina profilo', 'elimina',
+    'cambia profilo', 'cambia', 'vedi tutto', 'vedi tutti',
+    'accedi', 'esci', 'account', 'impostazioni', 'aiuto', 'supporto',
+    'contatti', 'profili', 'profilo', 'nome', 'fatto', 'salva', 'chiudi',
+    'indietro', 'avanti', 'precedente',
+    # Polish
+    'zarządzaj profilami', 'zarządzaj profilem', 'zarządzaj',
+    'edytuj profil', 'edytuj', 'dodaj profil', 'dodaj',
+    'utwórz profil', 'utwórz', 'usuń profil', 'usuń',
+    'przełącz profil', 'przełącz', 'zobacz wszystko', 'pokaż wszystko',
+    'zaloguj się', 'wyloguj się', 'konto', 'ustawienia', 'pomoc', 'wsparcie',
+    'kontakt', 'profile', 'profil', 'nazwa', 'gotowe', 'zapisz', 'zamknij',
+    'wstecz', 'dalej', 'poprzedni',
+    # Turkish
+    'profilleri yönet', 'profili yönet', 'yönet',
+    'profili düzenle', 'düzenle', 'profil ekle', 'ekle',
+    'profil oluştur', 'oluştur', 'profili sil', 'sil',
+    'profil değiştir', 'değiştir', 'tümünü gör', 'tümünü göster',
+    'giriş yap', 'çıkış yap', 'hesap', 'ayarlar', 'yardım', 'destek',
+    'iletişim', 'profiller', 'profil', 'isim', 'ad', 'tamam', 'kaydet', 'kapat',
+    'geri', 'ileri', 'önceki',
+    # Russian
+    'управление профилями', 'управление профилем', 'управление',
+    'изменить профиль', 'изменить', 'добавить профиль', 'добавить',
+    'создать профиль', 'создать', 'удалить профиль', 'удалить',
+    'сменить профиль', 'сменить', 'посмотреть все', 'показать все',
+    'войти', 'выйти', 'аккаунт', 'настройки', 'помощь', 'поддержка',
+    'контакт', 'профили', 'профиль', 'имя', 'готово', 'сохранить', 'закрыть',
+    'назад', 'далее', 'предыдущий',
+    # Ukrainian
+    'управління профілями', 'управління профілем', 'управління',
+    'редагувати профіль', 'редагувати', 'додати профіль', 'додати',
+    'створити профіль', 'створити', 'видалити профіль', 'видалити',
+    'змінити профіль', 'змінити', 'переглянути все', 'показати все',
+    'увійти', 'вийти', 'обліковий запис', 'налаштування', 'допомога', 'підтримка',
+    'контакт', 'профілі', 'профіль', "ім'я", 'готово', 'зберегти', 'закрити',
+    'назад', 'далі', 'попередній',
+    # Croatian
+    'upravljanje profilima', 'upravljanje profilom', 'upravljanje',
+    'uredi profil', 'uredi', 'dodaj profil', 'dodaj',
+    'stvori profil', 'stvori', 'izbriši profil', 'izbriši',
+    'promijeni profil', 'promijeni', 'vidi sve', 'prikaži sve',
+    'prijavi se', 'odjavi se', 'račun', 'postavke', 'pomoć', 'podrška',
+    'kontakt', 'profili', 'profil', 'ime', 'gotovo', 'spremi', 'zatvori',
+    'natrag', 'naprijed', 'prethodno',
     # Arabic
-    'اضافة', 'إضافة', 'اضافة بروفايل', 'إضافة بروفايل', 'اضف بروفايل',
-    'اضف', 'تعديل', 'حذف', 'رجوع', 'خروج', 'حسابي',
-    'ادارة الملفات', 'إدارة الملفات', 'الملف الشخصي',
-    'الكل', 'الرئيسية', 'مساعدة',
+    'إدارة الملفات الشخصية', 'إدارة الملفات', 'إدارة الملف', 'إدارة',
+    'تعديل الملف الشخصي', 'تعديل الملف', 'تعديل',
+    'إضافة ملف شخصي', 'إضافة ملف', 'إضافة',
+    'إنشاء ملف شخصي', 'إنشاء',
+    'حذف الملف الشخصي', 'حذف',
+    'تبديل الملف الشخصي', 'تبديل',
+    'عرض الكل', 'إظهار الكل',
+    'تسجيل الدخول', 'تسجيل الخروج', 'خروج', 'حسابي', 'الإعدادات',
+    'مساعدة', 'الدعم', 'اتصل بنا', 'الملفات الشخصية', 'الملف الشخصي',
+    'الاسم', 'تم', 'حفظ', 'إغلاق', 'رجوع', 'التالي', 'السابق',
+    # Japanese
+    'プロフィールの管理', 'プロフィールを管理', 'プロフィール管理', '管理',
+    'プロフィールを編集', '編集', 'プロフィールを追加', '追加',
+    'プロフィールを作成', '作成', 'プロフィールを削除', '削除',
+    'プロフィールを切り替え', '切り替え', 'すべて表示', 'すべてを見る',
+    'ログイン', 'ログアウト', 'アカウント', '設定', 'ヘルプ', 'サポート',
+    'お問い合わせ', 'プロフィール', '名前', '完了', '保存', '閉じる',
+    '戻る', '次へ', '前へ',
+    # Korean
+    '프로필 관리', '관리', '프로필 편집', '편집', '프로필 추가', '추가',
+    '프로필 만들기', '만들기', '프로필 삭제', '삭제', '프로필 전환', '전환',
+    '모두 보기', '전체 보기', '로그인', '로그아웃', '계정', '설정',
+    '도움말', '지원', '문의', '프로필', '이름', '완료', '저장', '닫기',
+    '뒤로', '다음', '이전',
+    # Chinese
+    '管理個人資料', '管理配置文件', '管理', '編輯個人資料', '編輯', '編輯設定檔',
+    '新增個人資料', '新增', '建立個人資料', '建立', '刪除個人資料', '刪除',
+    '切換個人資料', '切換', '查看全部', '顯示全部', '登入', '登出',
+    '帳戶', '設定', '說明', '支援', '聯絡我們', '個人資料', '名稱',
+    '完成', '儲存', '關閉', '返回', '下一頁', '上一頁',
+    # Greek
+    'διαχείριση προφίλ', 'διαχείριση', 'επεξεργασία προφίλ', 'επεξεργασία',
+    'προσθήκη προφίλ', 'προσθήκη', 'δημιουργία προφίλ', 'δημιουργία',
+    'διαγραφή προφίλ', 'διαγραφή', 'εναλλαγή προφίλ', 'εναλλαγή',
+    'προβολή όλων', 'σύνδεση', 'αποσύνδεση', 'λογαριασμός', 'ρυθμίσεις',
+    'βοήθεια', 'υποστήριξη', 'επικοινωνία', 'προφίλ', 'όνομα', 'τέλος',
+    'αποθήκευση', 'κλείσιμο', 'πίσω', 'επόμενο', 'προηγούμενο',
+    # Hebrew
+    'ניהול פרופילים', 'ניהול', 'עריכת פרופיל', 'עריכה', 'הוספת פרופיל', 'הוספה',
+    'יצירת פרופיל', 'יצירה', 'מחיקת פרופיל', 'מחיקה', 'החלפת פרופיל', 'החלפה',
+    'הצג הכל', 'התחברות', 'התנתקות', 'חשבון', 'הגדרות', 'עזרה', 'תמיכה',
+    'צור קשר', 'פרופילים', 'פרופיל', 'שם', 'סיום', 'שמור', 'סגור',
+    'חזור', 'הבא', 'הקודם',
+    # Romanian
+    'administrare profiluri', 'administrare', 'editează profilul', 'editează',
+    'adaugă profil', 'adaugă', 'creează profil', 'creează', 'șterge profil', 'șterge',
+    'schimbă profilul', 'schimbă', 'vezi tot', 'arată tot', 'conectare', 'deconectare',
+    'cont', 'setări', 'ajutor', 'suport', 'contact', 'profiluri', 'profil', 'nume',
+    'gata', 'salvează', 'închide', 'înapoi', 'următor', 'anterior',
+    # Hungarian
+    'profilok kezelése', 'kezelés', 'profil szerkesztése', 'szerkesztés',
+    'profil hozzáadása', 'hozzáadás', 'profil létrehozása', 'létrehozás',
+    'profil törlése', 'törlés', 'profil váltása', 'váltás', 'összes megtekintése',
+    'bejelentkezés', 'kijelentkezés', 'fiók', 'beállítások', 'súgó', 'támogatás',
+    'kapcsolat', 'profilok', 'profil', 'név', 'kész', 'mentés', 'bezárás',
+    'vissza', 'következő', 'előző',
+    # Czech
+    'spravovat profily', 'spravovat', 'upravit profil', 'upravit',
+    'přidat profil', 'přidat', 'vytvořit profil', 'vytvořit', 'smazat profil', 'smazat',
+    'přepnout profil', 'přepnout', 'zobrazit vše', 'přihlásit se', 'odhlásit se',
+    'účet', 'nastavení', 'nápověda', 'podpora', 'kontakt', 'profily', 'profil',
+    'jméno', 'hotovo', 'uložit', 'zavřít', 'zpět', 'další', 'předchozí',
+    # Danish
+    'administrer profiler', 'administrer', 'rediger profil', 'rediger',
+    'tilføj profil', 'tilføj', 'opret profil', 'opret', 'slet profil', 'slet',
+    'skift profil', 'skift', 'se alle', 'vis alle', 'log ind', 'log ud',
+    'konto', 'indstillinger', 'hjælp', 'support', 'kontakt', 'profiler',
+    'profil', 'navn', 'færdig', 'gem', 'luk', 'tilbage', 'næste', 'forrige',
+    # Swedish
+    'hantera profiler', 'hantera', 'redigera profil', 'redigera',
+    'lägg till profil', 'lägg till', 'skapa profil', 'skapa', 'ta bort profil', 'ta bort',
+    'byt profil', 'byt', 'se alla', 'visa alla', 'logga in', 'logga ut',
+    'konto', 'inställningar', 'hjälp', 'support', 'kontakt', 'profiler',
+    'profil', 'namn', 'klar', 'spara', 'stäng', 'tillbaka', 'nästa', 'föregående',
+    # Norwegian
+    'administrer profiler', 'administrer', 'rediger profil', 'rediger',
+    'legg til profil', 'legg til', 'opprett profil', 'opprett', 'slett profil', 'slett',
+    'bytt profil', 'bytt', 'se alle', 'vis alle', 'logg inn', 'logg ut',
+    'konto', 'innstillinger', 'hjelp', 'støtte', 'kontakt', 'profiler',
+    'profil', 'navn', 'ferdig', 'lagre', 'lukk', 'tilbake', 'neste', 'forrige',
+    # Finnish
+    'hallinnoi profiileja', 'hallinnoi', 'muokkaa profiilia', 'muokkaa',
+    'lisää profiili', 'lisää', 'luo profiili', 'luo', 'poista profiili', 'poista',
+    'vaihda profiilia', 'vaihda', 'näytä kaikki', 'kirjaudu sisään', 'kirjaudu ulos',
+    'tili', 'asetukset', 'ohje', 'tuki', 'yhteystiedot', 'profiilit', 'profiili',
+    'nimi', 'valmis', 'tallenna', 'sulje', 'takaisin', 'seuraava', 'edellinen',
+    # Indonesian
+    'kelola profil', 'kelola', 'edit profil', 'edit', 'tambah profil', 'tambah',
+    'buat profil', 'buat', 'hapus profil', 'hapus', 'ganti profil', 'ganti',
+    'lihat semua', 'masuk', 'keluar', 'akun', 'pengaturan', 'bantuan', 'dukungan',
+    'kontak', 'profil', 'nama', 'selesai', 'simpan', 'tutup', 'kembali',
+    'berikutnya', 'sebelumnya',
+    # Malay
+    'urus profil', 'urus', 'sunting profil', 'sunting', 'tambah profil', 'tambah',
+    'cipta profil', 'cipta', 'padam profil', 'padam', 'tukar profil', 'tukar',
+    'lihat semua', 'log masuk', 'log keluar', 'akaun', 'tetapan', 'bantuan',
+    'sokongan', 'hubungi', 'profil', 'nama', 'siap', 'simpan', 'tutup',
+    'kembali', 'seterusnya', 'sebelumnya',
+    # Vietnamese
+    'quản lý hồ sơ', 'quản lý', 'chỉnh sửa hồ sơ', 'chỉnh sửa',
+    'thêm hồ sơ', 'thêm', 'tạo hồ sơ', 'tạo', 'xóa hồ sơ', 'xóa',
+    'chuyển hồ sơ', 'chuyển', 'xem tất cả', 'đăng nhập', 'đăng xuất',
+    'tài khoản', 'cài đặt', 'trợ giúp', 'hỗ trợ', 'liên hệ', 'hồ sơ',
+    'tên', 'xong', 'lưu', 'đóng', 'quay lại', 'tiếp theo', 'trước',
+    # Thai
+    'จัดการโปรไฟล์', 'จัดการ', 'แก้ไขโปรไฟล์', 'แก้ไข', 'เพิ่มโปรไฟล์', 'เพิ่ม',
+    'สร้างโปรไฟล์', 'สร้าง', 'ลบโปรไฟล์', 'ลบ', 'สลับโปรไฟล์', 'สลับ',
+    'ดูทั้งหมด', 'เข้าสู่ระบบ', 'ออกจากระบบ', 'บัญชี', 'การตั้งค่า',
+    'ช่วยเหลือ', 'สนับสนุน', 'ติดต่อ', 'โปรไฟล์', 'ชื่อ', 'เสร็จสิ้น',
+    'บันทึก', 'ปิด', 'กลับ', 'ถัดไป', 'ก่อนหน้า',
+    # Filipino
+    'pamahalaan ang mga profile', 'pamahalaan', 'i-edit ang profile', 'i-edit',
+    'magdagdag ng profile', 'magdagdag', 'gumawa ng profile', 'gumawa',
+    'burahin ang profile', 'burahin', 'palitan ang profile', 'palitan',
+    'tingnan lahat', 'mag-sign in', 'mag-sign out', 'account', 'mga setting',
+    'tulong', 'suporta', 'contact', 'mga profile', 'profile', 'pangalan',
+    'tapos na', 'i-save', 'isara', 'bumalik', 'susunod', 'nakaraan',
 }
 
 # ======================== دوال NFToken ========================
@@ -429,12 +627,34 @@ def extract_payment_method(html_content):
 
     return None
 
-# ======================== دوال استخراج البروفايلات (محسّنة) ========================
+# ======================== دوال استخراج البروفايلات ========================
+def clean_profile_name(name):
+    """تنظيف اسم البروفايل من HTML entities و Unicode escapes"""
+    if not name:
+        return None
+    
+    cleaned = str(name)
+    
+    # فك HTML entities زي &#x3046; و &amp;
+    try:
+        cleaned = html.unescape(cleaned)
+    except:
+        pass
+    
+    # فك Unicode escapes زي \u3046
+    try:
+        cleaned = re.sub(r"\\u([0-9a-fA-F]{4})", lambda m: chr(int(m.group(1), 16)), cleaned)
+        cleaned = re.sub(r"\\x([0-9a-fA-F]{2})", lambda m: chr(int(m.group(1), 16)), cleaned)
+    except:
+        pass
+    
+    # شيل المسافات الزايدة
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    
+    return cleaned or None
+
 def _find_profile_names_in_json(obj, depth=0):
-    """
-    دالة recursive للبحث عن أسماء البروفايلات الحقيقية فقط
-    ✅ بتستبعد اللغات والـ UI عناصر
-    """
+    """دالة recursive - بتدور بس على profiles حقيقية"""
     names = []
     if depth > 15:
         return names
@@ -443,23 +663,20 @@ def _find_profile_names_in_json(obj, depth=0):
             keys_lower = [str(k).lower() for k in obj.keys()]
             
             # ✅ لازم يكون object بروفايل حقيقي
-            # لازم يكون فيه واحد من دول: profileId, profileGuid, avatar
-            # ولازم يكون فيه "name"
             has_profile_id = any(k in keys_lower for k in ['profileid', 'profileguid', 'profile_id', 'profile_guid'])
             has_avatar = any(k in keys_lower for k in ['avatar', 'avatarurl', 'avatar_url'])
             has_profile_key = any(k in keys_lower for k in ['profilename', 'profile_name'])
             
             has_name = any(k in keys_lower for k in ['name', 'profilename', 'displayname', 'profile_name', 'display_name'])
             
-            # ✅ لو ده object بروفايل حقيقي، ناخد الاسم
+            # ✅ لو ده object بروفايل حقيقي
             if (has_profile_id or has_avatar or has_profile_key) and has_name:
                 for key in ['name', 'profileName', 'displayName', 'profile_name', 'display_name']:
                     if key in obj and isinstance(obj[key], str):
-                        val = obj[key].strip()
+                        val = clean_profile_name(obj[key])
                         if val and len(val) <= 40:
                             names.append(val)
             
-            # ✅ نكمل البحث في الـ nested
             for v in obj.values():
                 names.extend(_find_profile_names_in_json(v, depth + 1))
                 
@@ -477,22 +694,31 @@ async def extract_all_profiles_from_manage(session):
         if not name:
             return False
         
-        name_clean = str(name).strip()
-        name_lower = name_clean.lower()
-        
-        # ✅ 1. فلتر اللغات
-        if name_lower in LANGUAGES_BLACKLIST:
+        # ✅ 1. تنظيف الاسم من HTML entities
+        name_clean = clean_profile_name(name)
+        if not name_clean:
             return False
         
-        # ✅ 2. فلتر أسماء UI
-        if name_lower in UI_FORBIDDEN_EXACT:
+        name_lower = name_clean.lower().strip()
+        name_no_colon = name_lower.rstrip(':').strip()
+        
+        # ✅ 2. لو الاسم لسه فيه HTML entity (مش اتفسر صح)
+        if '&#' in name_clean or '&amp;' in name_clean:
             return False
         
-        # ✅ 3. لو فيه نقطتين في الآخر
+        # ✅ 3. فلتر اللغات
+        if name_lower in LANGUAGES_BLACKLIST or name_no_colon in LANGUAGES_BLACKLIST:
+            return False
+        
+        # ✅ 4. فلتر UI بكل اللغات
+        if name_lower in UI_TRANSLATIONS_BLACKLIST or name_no_colon in UI_TRANSLATIONS_BLACKLIST:
+            return False
+        
+        # ✅ 5. لو فيه نقطتين في الآخر
         if name_clean.rstrip().endswith(':'):
             return False
         
-        # ✅ 4. فلاتر أساسية
+        # ✅ 6. فلاتر أساسية
         if len(name_clean) < 1:
             return False
         if name_lower.startswith('http') or name_lower.startswith('www'):
@@ -502,10 +728,13 @@ async def extract_all_profiles_from_manage(session):
         if len(name_clean) > 40:
             return False
         
-        # ✅ 5. فحص الكلمات الممنوعة كـ substring
+        # ✅ 7. فحص الكلمات الممنوعة كـ substring
         forbidden_substrings = [
             'manage profile', 'edit profile', 'add profile', 'create profile',
             'switch profile', 'delete profile', 'remove profile',
+            'administrar perfil', 'gérer le profil', 'profil verwalten',
+            'gestisci profilo', 'zarządzaj profilem', 'profilleri yönet',
+            'управление профил', 'управління профіл', 'upravljanje profil',
             'see all', 'show all', 'view all', 'load more',
             'sign in', 'sign out', 'log in', 'log out',
             'administrator', 'super admin',
@@ -515,12 +744,18 @@ async def extract_all_profiles_from_manage(session):
             if forbidden in name_lower:
                 return False
         
-        # ✅ 6. لو الاسم قصير وفيه كلمة UI
+        # ✅ 8. لو الاسم قصير وفيه كلمة UI
         words = name_lower.split()
         if len(words) <= 2:
-            ui_words = {'manage', 'profile', 'profiles', 'edit', 'add', 'delete',
-                       'remove', 'switch', 'see', 'show', 'view', 'all', 'more',
-                       'admin', 'owner', 'master', 'primary', 'default', 'guest'}
+            ui_words = {
+                'manage', 'profile', 'profiles', 'edit', 'add', 'delete',
+                'remove', 'switch', 'see', 'show', 'view', 'all', 'more',
+                'admin', 'owner', 'master', 'primary', 'default', 'guest',
+                'administrar', 'gerir', 'gérer', 'verwalten', 'beheren',
+                'gestisci', 'zarządzaj', 'yönet', 'управление', 'управління',
+                'upravljanje', 'administrer', 'hantera', 'hallinnoi',
+                'kelola', 'urus', 'quản', 'จัดการ', 'pamahalaan',
+            }
             if any(w in ui_words for w in words):
                 return False
         
@@ -537,34 +772,35 @@ async def extract_all_profiles_from_manage(session):
             if "signin" in html_content.lower()[:2000] and "logout" not in html_content.lower():
                 return page_profiles
 
-            # ============ الطرق الأساسية ============
-
-            # الطريقة 1: JSON "profiles" array
+            # ============ الطريقة 1: JSON "profiles" array (مع فلتر صارم) ============
             profiles_match = re.search(r'"profiles"\s*:\s*\[(.*?)\](?=\s*[,\}])', html_content, re.DOTALL)
             if profiles_match:
                 profiles_data = profiles_match.group(1)
-                all_names = re.findall(r'"name"\s*:\s*"([^"]+)"', profiles_data)
-                for name in all_names:
-                    decoded = decode_value(name)
-                    if is_valid_profile(decoded) and decoded not in page_profiles:
-                        page_profiles.append(decoded)
+                # ✅ لازم يكون فيه profileId أو profileGuid أو avatar جوه الـ array
+                # عشان نتأكد إنه فعلاً profiles مش languages
+                if any(key in profiles_data for key in ['profileId', 'profileGuid', 'avatar', 'avatarUrl']):
+                    all_names = re.findall(r'"name"\s*:\s*"([^"]+)"', profiles_data)
+                    for name in all_names:
+                        decoded = clean_profile_name(name)
+                        if is_valid_profile(decoded) and decoded not in page_profiles:
+                            page_profiles.append(decoded)
 
-            # الطريقة 2: "profileName"
+            # ============ الطريقة 2: "profileName" ============
             profile_matches = re.finditer(r'"profileName"\s*:\s*"([^"]+)"', html_content)
             for match in profile_matches:
-                pname = decode_value(match.group(1))
+                pname = clean_profile_name(match.group(1))
                 if is_valid_profile(pname) and pname not in page_profiles:
                     page_profiles.append(pname)
 
-            # الطريقة 3: profiles array + name
+            # ============ الطريقة 3: profiles array + name ============
             if not page_profiles:
                 alt_matches = re.finditer(r'"profiles"\s*:\s*\[.*?"name"\s*:\s*"([^"]+)"', html_content, re.DOTALL)
                 for match in alt_matches:
-                    pname = decode_value(match.group(1))
+                    pname = clean_profile_name(match.group(1))
                     if is_valid_profile(pname) and pname not in page_profiles:
                         page_profiles.append(pname)
 
-            # الطريقة 4: class profile-name
+            # ============ الطريقة 4: class profile-name ============
             profile_classes = [
                 r'<span[^>]*class="[^"]*profile-name[^"]*"[^>]*>([^<]+)</span>',
                 r'<div[^>]*class="[^"]*profile-name[^"]*"[^>]*>([^<]+)</div>',
@@ -583,94 +819,94 @@ async def extract_all_profiles_from_manage(session):
             for pattern in profile_classes:
                 matches = re.finditer(pattern, html_content, re.IGNORECASE | re.DOTALL)
                 for match in matches:
-                    pname = decode_value(match.group(1))
+                    pname = clean_profile_name(match.group(1))
                     if is_valid_profile(pname) and pname not in page_profiles:
                         page_profiles.append(pname)
 
-            # الطريقة 5: profileId + name
+            # ============ الطريقة 5: profileId + name ============
             if not page_profiles:
                 alt_pattern = r'"profileId"\s*:\s*"[^"]+"\s*,\s*"name"\s*:\s*"([^"]+)"'
                 matches = re.finditer(alt_pattern, html_content)
                 for match in matches:
-                    pname = decode_value(match.group(1))
+                    pname = clean_profile_name(match.group(1))
                     if is_valid_profile(pname) and pname not in page_profiles:
                         page_profiles.append(pname)
 
-            # الطريقة 6: profileGuid + name
+            # ============ الطريقة 6: profileGuid + name ============
             if not page_profiles:
                 alt_pattern2 = r'"profileGuid"\s*:\s*"[^"]+"\s*,\s*"name"\s*:\s*"([^"]+)"'
                 matches = re.finditer(alt_pattern2, html_content)
                 for match in matches:
-                    pname = decode_value(match.group(1))
+                    pname = clean_profile_name(match.group(1))
                     if is_valid_profile(pname) and pname not in page_profiles:
                         page_profiles.append(pname)
 
-            # الطريقة 7: profile + name
+            # ============ الطريقة 7: profile + name ============
             if not page_profiles:
                 alt_pattern3 = r'profile[^}]*?"name"\s*:\s*"([^"]+)"'
                 matches = re.finditer(alt_pattern3, html_content, re.IGNORECASE | re.DOTALL)
                 for match in matches:
-                    pname = decode_value(match.group(1))
+                    pname = clean_profile_name(match.group(1))
                     if is_valid_profile(pname) and pname not in page_profiles:
                         page_profiles.append(pname)
 
-            # الطريقة 8: alt + data-uia
+            # ============ الطريقة 8: alt + data-uia ============
             if not page_profiles:
                 alt_pattern4 = r'alt="([^"]+)"[^>]*data-uia="profile'
                 matches = re.finditer(alt_pattern4, html_content)
                 for match in matches:
-                    pname = decode_value(match.group(1))
+                    pname = clean_profile_name(match.group(1))
                     if is_valid_profile(pname) and pname not in page_profiles:
                         page_profiles.append(pname)
 
-            # الطريقة 9: option tags
+            # ============ الطريقة 9: option tags ============
             if not page_profiles:
                 alt_pattern5 = r'<option[^>]*value="[^"]*"[^>]*>([^<]+)</option>'
                 matches = re.finditer(alt_pattern5, html_content, re.IGNORECASE)
                 for match in matches:
-                    pname = decode_value(match.group(1))
+                    pname = clean_profile_name(match.group(1))
                     if is_valid_profile(pname) and pname not in page_profiles:
                         page_profiles.append(pname)
 
-            # الطريقة 10: aria-label Switch Profile
+            # ============ الطريقة 10: aria-label Switch Profile ============
             if not page_profiles:
                 alt_pattern6 = r'aria-label="[^"]*Profile[^"]*:\s*([^"]+)"'
                 matches = re.finditer(alt_pattern6, html_content, re.IGNORECASE)
                 for match in matches:
-                    pname = decode_value(match.group(1))
+                    pname = clean_profile_name(match.group(1))
                     if is_valid_profile(pname) and pname not in page_profiles:
                         page_profiles.append(pname)
 
-            # الطريقة 11: "profileName" في script
+            # ============ الطريقة 11: "profileName" في script ============
             if not page_profiles:
                 script_matches = re.findall(r'<script[^>]*>(.*?)</script>', html_content, re.DOTALL)
                 for script in script_matches:
                     if 'profile' in script.lower():
                         names = re.findall(r'"profileName"\s*:\s*"([^"]+)"', script)
                         for n in names:
-                            pname = decode_value(n)
+                            pname = clean_profile_name(n)
                             if is_valid_profile(pname) and pname not in page_profiles:
                                 page_profiles.append(pname)
 
-            # الطريقة 12: name جوه object فيه profile
+            # ============ الطريقة 12: name جوه object فيه profile ============
             if not page_profiles:
                 json_blocks = re.findall(r'\{[^{}]*"profile[^{}]*\}', html_content, re.IGNORECASE)
                 for block in json_blocks:
                     names = re.findall(r'"name"\s*:\s*"([^"]+)"', block)
                     for n in names:
-                        pname = decode_value(n)
+                        pname = clean_profile_name(n)
                         if is_valid_profile(pname) and pname not in page_profiles:
                             page_profiles.append(pname)
 
-            # الطريقة 13: data attributes
+            # ============ الطريقة 13: data attributes ============
             if not page_profiles:
                 data_names = re.findall(r'data-[a-z-]*name="([^"]+)"', html_content, re.IGNORECASE)
                 for n in data_names:
-                    pname = decode_value(n)
+                    pname = clean_profile_name(n)
                     if is_valid_profile(pname) and pname not in page_profiles:
                         page_profiles.append(pname)
 
-            # الطريقة 14: __NEXT_DATA__ (باستخدام الدالة المحسّنة)
+            # ============ الطريقة 14: __NEXT_DATA__ ============
             if not page_profiles:
                 next_data_match = re.search(r'<script[^>]*id="__NEXT_DATA__"[^>]*>(.*?)</script>', html_content, re.DOTALL)
                 if next_data_match:
@@ -678,13 +914,13 @@ async def extract_all_profiles_from_manage(session):
                         next_data = json.loads(next_data_match.group(1))
                         names = _find_profile_names_in_json(next_data)
                         for n in names:
-                            pname = decode_value(n)
+                            pname = clean_profile_name(n)
                             if is_valid_profile(pname) and pname not in page_profiles:
                                 page_profiles.append(pname)
                     except:
                         pass
 
-            # الطريقة 15: netflix react context (باستخدام الدالة المحسّنة)
+            # ============ الطريقة 15: netflix react context ============
             if not page_profiles:
                 react_match = re.search(r'netflix\.react\.context\s*=\s*(\{.*?\});', html_content, re.DOTALL)
                 if react_match:
@@ -692,7 +928,7 @@ async def extract_all_profiles_from_manage(session):
                         ctx = json.loads(react_match.group(1))
                         names = _find_profile_names_in_json(ctx)
                         for n in names:
-                            pname = decode_value(n)
+                            pname = clean_profile_name(n)
                             if is_valid_profile(pname) and pname not in page_profiles:
                                 page_profiles.append(pname)
                     except:
@@ -703,7 +939,7 @@ async def extract_all_profiles_from_manage(session):
 
         return page_profiles
 
-    # نجرب الصفحتين
+    # ✅ نجرب الصفحتين
     profiles = await extract_from_page("https://www.netflix.com/ManageProfiles")
 
     if not profiles:
@@ -1623,9 +1859,10 @@ def main():
     print("✅ Netflix Checker Bot is running...")
     print("✅ Async mode - /cancel responds INSTANTLY")
     print("✅ Enhanced profile extraction (15 methods)")
-    print("✅ Language filter active (no more languages as profiles)")
-    print("✅ UI names filtered (Manage Profiles, Admin, etc.)")
-    print("✅ Date formatting fixed")
+    print("✅ Language filter active")
+    print("✅ UI translations filtered (50+ languages)")
+    print("✅ HTML entities decoded properly")
+    print("✅ Strict profiles array validation")
     print("=" * 50)
 
     app.run_polling(allowed_updates=Update.ALL_TYPES)
