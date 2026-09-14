@@ -203,7 +203,7 @@ def format_membership_status(status):
     else:
         return status.title()
 
-# ======================== دوال استخراج الكوكيز (المعدلة) ========================
+# ======================== دوال استخراج الكوكيز ========================
 def extract_all_cookies_from_file(content):
     """استخراج جميع الكوكيز من النص - يقرأ كل الكوكيز في الملف"""
     accounts = []
@@ -211,9 +211,7 @@ def extract_all_cookies_from_file(content):
     if not content or not content.strip():
         return accounts
     
-    # ============================================================
-    # الطريقة 1: البحث عن كل NetflixId في النص (للتنسيق البسيط)
-    # ============================================================
+    # الطريقة 1: البحث عن كل NetflixId في النص
     pattern = r'NetflixId[=\t\s]+([^\s\n\t;]+)'
     all_matches = list(re.finditer(pattern, content))
     
@@ -221,13 +219,11 @@ def extract_all_cookies_from_file(content):
         cookies = {}
         nf_value = match.group(1).strip('"')
         
-        # منع التكرار
         if any(acc['cookies'].get('NetflixId') == nf_value for acc in accounts):
             continue
             
         cookies['NetflixId'] = nf_value
         
-        # البحث عن SecureNetflixId في نفس المنطقة
         start = match.start()
         end = min(start + 500, len(content))
         nearby_text = content[start:end]
@@ -239,9 +235,7 @@ def extract_all_cookies_from_file(content):
         
         accounts.append({"cookies": cookies, "raw": f"account_{len(accounts)+1}"})
     
-    # ============================================================
-    # الطريقة 2: تنسيق Netscape (لو الطريقة الأولى مجابتش حاجة)
-    # ============================================================
+    # الطريقة 2: تنسيق Netscape
     if not accounts:
         netscape_cookies = {}
         lines = content.split('\n')
@@ -264,9 +258,7 @@ def extract_all_cookies_from_file(content):
         if netscape_cookies.get('NetflixId'):
             accounts.append({"cookies": netscape_cookies, "raw": "netscape_format"})
     
-    # ============================================================
-    # الطريقة 3: تقسيم النص على أساس NetflixId (للتنسيق المتعدد)
-    # ============================================================
+    # الطريقة 3: تقسيم النص على أساس NetflixId
     if not accounts:
         parts = re.split(r'(?=NetflixId[=\t])', content)
         
@@ -364,7 +356,7 @@ def extract_payment_method(html_content):
     
     return None
 
-# ======================== دوال استخراج البروفايلات ========================
+# ======================== دوال استخراج البروفايلات (محسّنة بـ 10 طرق) ========================
 def extract_all_profiles_from_manage(session, headers):
     profiles = []
     
@@ -375,6 +367,22 @@ def extract_all_profiles_from_manage(session, headers):
         'add profile', 'add a profile', 'new', 'make a profile'
     ]
     
+    def is_valid_profile(name):
+        if not name:
+            return False
+        name_lower = name.lower().strip()
+        if len(name) < 1:
+            return False
+        if name_lower in forbidden_names:
+            return False
+        if any(forbidden == name_lower for forbidden in forbidden_names):
+            return False
+        if name_lower.startswith('http') or name_lower.startswith('www'):
+            return False
+        if name.isdigit():
+            return False
+        return True
+    
     try:
         resp = session.get("https://www.netflix.com/ManageProfiles", headers=headers, timeout=REQUEST_TIMEOUT)
         
@@ -383,27 +391,32 @@ def extract_all_profiles_from_manage(session, headers):
         
         html_content = resp.text
         
+        # الطريقة 1: JSON "profiles" array
         profiles_match = re.search(r'"profiles"\s*:\s*\[(.*?)\](?=\s*[,\}])', html_content, re.DOTALL)
         if profiles_match:
             profiles_data = profiles_match.group(1)
             all_names = re.findall(r'"name"\s*:\s*"([^"]+)"', profiles_data)
             for name in all_names:
                 decoded = decode_value(name)
-                if decoded:
-                    name_lower = decoded.lower().strip()
-                    is_forbidden = any(forbidden in name_lower for forbidden in forbidden_names)
-                    if not is_forbidden and decoded not in profiles and len(decoded) >= 1:
-                        profiles.append(decoded)
+                if is_valid_profile(decoded) and decoded not in profiles:
+                    profiles.append(decoded)
         
+        # الطريقة 2: "profileName"
         profile_matches = re.finditer(r'"profileName"\s*:\s*"([^"]+)"', html_content)
         for match in profile_matches:
             pname = decode_value(match.group(1))
-            if pname:
-                name_lower = pname.lower().strip()
-                is_forbidden = any(forbidden in name_lower for forbidden in forbidden_names)
-                if not is_forbidden and pname not in profiles and len(pname) >= 1:
+            if is_valid_profile(pname) and pname not in profiles:
+                profiles.append(pname)
+        
+        # الطريقة 3: "profiles" array مع "name" جواه
+        if not profiles:
+            alt_matches = re.finditer(r'"profiles"\s*:\s*\[.*?"name"\s*:\s*"([^"]+)"', html_content, re.DOTALL)
+            for match in alt_matches:
+                pname = decode_value(match.group(1))
+                if is_valid_profile(pname) and pname not in profiles:
                     profiles.append(pname)
         
+        # الطريقة 4: class profile-name / profile-link / data-uia
         profile_classes = [
             r'<span[^>]*class="[^"]*profile-name[^"]*"[^>]*>([^<]+)</span>',
             r'<div[^>]*class="[^"]*profile-name[^"]*"[^>]*>([^<]+)</div>',
@@ -411,20 +424,73 @@ def extract_all_profiles_from_manage(session, headers):
             r'<div[^>]*data-profile-name[^>]*>([^<]+)</div>',
             r'<span[^>]*data-uia="profile-name"[^>]*>([^<]+)</span>',
             r'<div[^>]*aria-label="Profile[^"]*"[^>]*>([^<]+)</div>',
+            r'<h1[^>]*class="[^"]*profile[^"]*"[^>]*>([^<]+)</h1>',
+            r'<h2[^>]*class="[^"]*profile[^"]*"[^>]*>([^<]+)</h2>',
         ]
         
         for pattern in profile_classes:
             matches = re.finditer(pattern, html_content, re.IGNORECASE)
             for match in matches:
                 pname = decode_value(match.group(1))
-                if pname:
-                    name_lower = pname.lower().strip()
-                    is_forbidden = any(forbidden in name_lower for forbidden in forbidden_names)
-                    if not is_forbidden and pname not in profiles and len(pname) >= 1:
-                        profiles.append(pname)
+                if is_valid_profile(pname) and pname not in profiles:
+                    profiles.append(pname)
+        
+        # الطريقة 5: "profileId" مع "name"
+        if not profiles:
+            alt_pattern = r'"profileId"\s*:\s*"[^"]+"\s*,\s*"name"\s*:\s*"([^"]+)"'
+            matches = re.finditer(alt_pattern, html_content)
+            for match in matches:
+                pname = decode_value(match.group(1))
+                if is_valid_profile(pname) and pname not in profiles:
+                    profiles.append(pname)
+        
+        # الطريقة 6: "profileGuid" مع "name"
+        if not profiles:
+            alt_pattern2 = r'"profileGuid"\s*:\s*"[^"]+"\s*,\s*"name"\s*:\s*"([^"]+)"'
+            matches = re.finditer(alt_pattern2, html_content)
+            for match in matches:
+                pname = decode_value(match.group(1))
+                if is_valid_profile(pname) and pname not in profiles:
+                    profiles.append(pname)
+        
+        # الطريقة 7: profile + name
+        if not profiles:
+            alt_pattern3 = r'profile[^}]*?"name"\s*:\s*"([^"]+)"'
+            matches = re.finditer(alt_pattern3, html_content, re.IGNORECASE | re.DOTALL)
+            for match in matches:
+                pname = decode_value(match.group(1))
+                if is_valid_profile(pname) and pname not in profiles:
+                    profiles.append(pname)
+        
+        # الطريقة 8: alt + data-uia="profile"
+        if not profiles:
+            alt_pattern4 = r'alt="([^"]+)"[^>]*data-uia="profile'
+            matches = re.finditer(alt_pattern4, html_content)
+            for match in matches:
+                pname = decode_value(match.group(1))
+                if is_valid_profile(pname) and pname not in profiles:
+                    profiles.append(pname)
+        
+        # الطريقة 9: <option> tags
+        if not profiles:
+            alt_pattern5 = r'<option[^>]*value="[^"]*"[^>]*>([^<]+)</option>'
+            matches = re.finditer(alt_pattern5, html_content, re.IGNORECASE)
+            for match in matches:
+                pname = decode_value(match.group(1))
+                if is_valid_profile(pname) and pname not in profiles:
+                    profiles.append(pname)
+        
+        # الطريقة 10: aria-label="Switch Profile: NAME"
+        if not profiles:
+            alt_pattern6 = r'aria-label="[^"]*Profile[^"]*:\s*([^"]+)"'
+            matches = re.finditer(alt_pattern6, html_content, re.IGNORECASE)
+            for match in matches:
+                pname = decode_value(match.group(1))
+                if is_valid_profile(pname) and pname not in profiles:
+                    profiles.append(pname)
         
         profiles = list(dict.fromkeys(profiles))
-        profiles = [p for p in profiles if p and len(p) >= 1 and p.lower() not in forbidden_names]
+        profiles = [p for p in profiles if is_valid_profile(p)]
         
     except Exception as e:
         pass
@@ -662,6 +728,17 @@ def format_account_details_for_chat(info, pc_link=None, mobile_link=None):
     
     lines.append(f"   📦 Plan: {plan_display}")
     
+    # ✅ حالة الحساب الفعلية
+    account_status = info.get('status', 'Active')
+    status_icon = {
+        "Active": "🟢",
+        "Expired": "🔴",
+        "Cancelled": "🟠",
+        "On Hold": "🟡",
+        "Past Due": "🔴",
+    }.get(account_status, "⚪")
+    lines.append(f"   {status_icon} Account Status: {account_status}")
+    
     member_since = info.get('memberSince')
     if member_since:
         formatted = format_member_since(member_since)
@@ -688,7 +765,6 @@ def format_account_details_for_chat(info, pc_link=None, mobile_link=None):
     lines.append(f"   ⏸️ Hold: {info.get('hold', 'No')}")
     lines.append(f"   👥 Extra Member: {info.get('extra_member', 'No')}")
     lines.append(f"   ✅ Email Verified: {info.get('email_verified', 'No')}")
-    lines.append(f"   🛡️ Status: {info.get('status', 'Active')}")
     
     lines.append("")
     lines.append("👥 Profiles:")
@@ -745,6 +821,17 @@ def format_account_details_for_file(info, pc_link=None):
     
     details.append(f"📦 Plan: {plan_display}")
     
+    # ✅ حالة الحساب الفعلية
+    account_status = info.get('status', 'Active')
+    status_icon = {
+        "Active": "🟢",
+        "Expired": "🔴",
+        "Cancelled": "🟠",
+        "On Hold": "🟡",
+        "Past Due": "🔴",
+    }.get(account_status, "⚪")
+    details.append(f"{status_icon} Account Status: {account_status}")
+    
     member_since = info.get('memberSince')
     if member_since:
         formatted = format_member_since(member_since)
@@ -770,7 +857,6 @@ def format_account_details_for_file(info, pc_link=None):
     details.append(f"⏸️ Hold Status: {info.get('hold', 'No')}")
     details.append(f"👥 Extra Member: {info.get('extra_member', 'No')}")
     details.append(f"✅ Email Verified: {info.get('email_verified', 'No')}")
-    details.append(f"🛡️ Membership Status: {info.get('status', 'Active')}")
     
     details.append("")
     details.append("PROFILES")
@@ -820,6 +906,13 @@ async def update_progress(context):
     mobile = sum(1 for r in results.values() if r.get("plan_key") == "mobile")
     invalid = sum(1 for r in results.values() if r.get("plan_key") == "invalid")
     
+    # ✅ إحصائيات حالات الحساب
+    active_count = sum(1 for r in results.values() if r.get("account_status") == "Active")
+    expired_count = sum(1 for r in results.values() if r.get("account_status") == "Expired")
+    cancelled_count = sum(1 for r in results.values() if r.get("account_status") == "Cancelled")
+    hold_count = sum(1 for r in results.values() if r.get("account_status") == "On Hold")
+    past_due_count = sum(1 for r in results.values() if r.get("account_status") == "Past Due")
+    
     text = (
         f"🔄 Processing Started\n\n"
         f"📁 Total Cookies: {total_accounts}\n"
@@ -832,6 +925,12 @@ async def update_progress(context):
         f"   ├─ 🔰 Basic: {basic}\n"
         f"   ├─ 📱 Mobile: {mobile}\n"
         f"   └─ ❌ Invalid: {invalid}\n\n"
+        f"🛡️ Account Status:\n"
+        f"   ├─ 🟢 Active: {active_count}\n"
+        f"   ├─ 🔴 Expired: {expired_count}\n"
+        f"   ├─ 🟠 Cancelled: {cancelled_count}\n"
+        f"   ├─ 🟡 On Hold: {hold_count}\n"
+        f"   └─ 🔴 Past Due: {past_due_count}\n\n"
         f"{bar} {percent}%\n\n"
         f"⚠️ Use /cancel to stop this task"
     )
@@ -840,6 +939,64 @@ async def update_progress(context):
         await context.bot.edit_message_text(text, chat_id=chat_id, message_id=msg_id)
     except:
         pass
+
+async def send_partial_results(context, chat_id, reason="cancelled"):
+    """بترسل النتائج اللي اتفحصت لحد دلوقتي"""
+    global results, total_accounts, processed
+    
+    if not results:
+        await context.bot.send_message(chat_id, "⚠️ No results to show.")
+        return
+    
+    premium = sum(1 for r in results.values() if r.get("plan_key") == "premium")
+    standard = sum(1 for r in results.values() if r.get("plan_key") in ["standard", "standard_with_ads"])
+    basic = sum(1 for r in results.values() if r.get("plan_key") == "basic")
+    mobile = sum(1 for r in results.values() if r.get("plan_key") == "mobile")
+    invalid = sum(1 for r in results.values() if r.get("plan_key") == "invalid")
+    valid = premium + standard + basic + mobile
+    
+    title = "🛑 Task Cancelled - Partial Results" if reason == "cancelled" else "⚠️ Task Stopped - Partial Results"
+    
+    result_text = (
+        f"{title}\n\n"
+        f"📊 Statistics (Partial):\n"
+        f"   ├─ Processed: {processed}/{total_accounts}\n"
+        f"   ├─ Valid Paid Accounts: {valid}\n"
+        f"   ├─ 💎 Premium: {premium}\n"
+        f"   ├─ 📺 Standard: {standard}\n"
+        f"   ├─ 🔰 Basic: {basic}\n"
+        f"   ├─ 📱 Mobile: {mobile}\n"
+        f"   └─ ❌ Invalid/Free: {invalid}"
+    )
+    await context.bot.send_message(chat_id, result_text)
+    
+    plan_files = {
+        "premium": "PREMIUM_ACCOUNTS.txt",
+        "standard": "STANDARD_ACCOUNTS.txt",
+        "standard_with_ads": "STANDARD_WITH_ADS_ACCOUNTS.txt",
+        "basic": "BASIC_ACCOUNTS.txt",
+        "mobile": "MOBILE_ACCOUNTS.txt",
+    }
+    
+    for plan_key, out_filename in plan_files.items():
+        plan_results = [(name, data) for name, data in results.items() if data.get("plan_key") == plan_key]
+        if not plan_results:
+            continue
+        
+        content = f"🎬 NETFLIX ACCOUNTS - {plan_key.upper()}\n{'=' * 50}\n\n"
+        for acc_name, data in plan_results:
+            content += f"{data.get('details', 'No details')}\n"
+            content += f"\n{'-' * 40}\n\n"
+        
+        try:
+            encoded_content = content.encode("utf-8", errors="ignore")
+            await context.bot.send_document(
+                chat_id=chat_id,
+                document=BytesIO(encoded_content),
+                filename=out_filename
+            )
+        except Exception as e:
+            print(f"[ERROR] Failed to send {out_filename}: {e}")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -931,7 +1088,7 @@ async def cancel_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if checking:
         stop_flag = True
         checking = False
-        await update.message.reply_text("🛑 Task cancelled by user.")
+        await update.message.reply_text("🛑 Cancelling task... Please wait for partial results.")
     else:
         await update.message.reply_text("⚠️ No active task to cancel.")
 
@@ -1018,6 +1175,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "plan_key": "invalid",
                 "plan": "Invalid",
                 "details": f"❌ Error: {error or 'Unknown'}",
+                "account_status": "Invalid",
             }
             continue
         
@@ -1035,6 +1193,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "plan_key": plan_key,
             "plan": plan_display,
             "details": details,
+            "account_status": info.get('status', 'Active'),
         }
         
         time.sleep(0.05)
@@ -1045,6 +1204,11 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.delete_message(chat_id=chat_id, message_id=msg_id)
     except:
         pass
+    
+    # ✅ لو اتعمل cancel، نبعت النتائج الجزئية
+    if stop_flag:
+        await send_partial_results(context, chat_id, reason="cancelled")
+        return
     
     elapsed = time.time() - start_time
     premium = sum(1 for r in results.values() if r.get("plan_key") == "premium")
@@ -1160,6 +1324,7 @@ async def handle_text_cookies(update: Update, context: ContextTypes.DEFAULT_TYPE
                 "details": f"❌ Error: {error or 'Unknown'}",
                 "pc_link": None,
                 "mobile_link": None,
+                "account_status": "Invalid",
             }
             continue
 
@@ -1180,6 +1345,7 @@ async def handle_text_cookies(update: Update, context: ContextTypes.DEFAULT_TYPE
             "plan": plan_display,
             "details": details,
             "keyboard": keyboard,
+            "account_status": info.get('status', 'Active'),
         }
 
         time.sleep(0.05)
@@ -1190,6 +1356,24 @@ async def handle_text_cookies(update: Update, context: ContextTypes.DEFAULT_TYPE
         await context.bot.delete_message(chat_id=chat_id, message_id=msg_id)
     except:
         pass
+
+    # ✅ لو اتعمل cancel، نبعت النتائج الجزئية
+    if stop_flag:
+        await send_partial_results(context, chat_id, reason="cancelled")
+        # كمان نبعت النتائج اللي في الشات
+        for acc_name, data in results.items():
+            if data.get("plan_key") != "invalid":
+                details = data.get('details', '')
+                keyboard = data.get('keyboard', None)
+                if details:
+                    try:
+                        if keyboard:
+                            await context.bot.send_message(chat_id, details, reply_markup=keyboard)
+                        else:
+                            await context.bot.send_message(chat_id, details)
+                    except:
+                        pass
+        return
 
     elapsed = time.time() - start_time
     premium = sum(1 for r in results.values() if r.get("plan_key") == "premium")
@@ -1223,10 +1407,13 @@ async def handle_text_cookies(update: Update, context: ContextTypes.DEFAULT_TYPE
                 keyboard = data.get('keyboard', None)
                 
                 if details:
-                    if keyboard:
-                        await context.bot.send_message(chat_id, details, reply_markup=keyboard)
-                    else:
-                        await context.bot.send_message(chat_id, details)
+                    try:
+                        if keyboard:
+                            await context.bot.send_message(chat_id, details, reply_markup=keyboard)
+                        else:
+                            await context.bot.send_message(chat_id, details)
+                    except:
+                        pass
     else:
         await context.bot.send_message(chat_id, "⚠️ No valid paid accounts found in your message!")
 
@@ -1246,6 +1433,9 @@ def main():
     print("=" * 50)
     print("✅ Netflix Checker Bot is running...")
     print("✅ Now reads ALL cookies in the file (not just the first one)")
+    print("✅ Cancel now stops task and sends partial results")
+    print("✅ Account status shown in results")
+    print("✅ Enhanced profile extraction (10 methods)")
     print("=" * 50)
     
     app.run_polling(allowed_updates=Update.ALL_TYPES)
