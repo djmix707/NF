@@ -1,4 +1,4 @@
-# NF.py - Netflix Cookies Checker Bot (Async + Full Features)
+# NF.py - Netflix Cookies Checker Bot (Async + Full Features + Language Filter)
 import os
 import re
 import json
@@ -22,6 +22,51 @@ if not BOT_TOKEN:
 
 # ======================== الإعدادات ========================
 REQUEST_TIMEOUT = 30
+
+# ======================== قوائم الفلترة العامة ========================
+LANGUAGES_BLACKLIST = {
+    # English names
+    'english', 'spanish', 'french', 'german', 'italian', 'portuguese', 'dutch',
+    'polish', 'turkish', 'russian', 'arabic', 'hebrew', 'greek', 'romanian',
+    'hungarian', 'czech', 'vietnamese', 'indonesian', 'malay', 'ukrainian',
+    'croatian', 'swedish', 'norwegian', 'danish', 'finnish', 'japanese',
+    'korean', 'chinese', 'thai', 'hindi', 'bengali', 'tamil', 'telugu',
+    # Native names
+    'español', 'português', 'français', 'svenska', 'norsk bokmål', 'suomi',
+    'dansk', 'nederlands', 'deutsch', '日本語', 'italiano', '中文', '한국어',
+    'العربية', 'polski', 'türkçe', 'limba română', 'română', 'ελληνικά',
+    'bahasa indonesia', 'magyar', 'čeština', 'liên việt', 'tiếng việt', 'עברית',
+    'melayu', 'bahasa melayu', 'русский', 'hrvatski', 'українська', 'filipino',
+    'ไทย', 'हिन्दी',
+    # Arabic names of languages
+    'الفرنسية', 'الإنجليزية', 'الإسبانية', 'الألمانية', 'الإيطالية',
+    'البرتغالية', 'الروسية', 'التركية', 'الهندية', 'اليابانية', 'الكورية', 'الصينية',
+}
+
+UI_FORBIDDEN_EXACT = {
+    # UI Elements
+    'add', 'add profile', 'add a profile', 'add new', 'addnew', 'add new profile',
+    'new', 'new profile', 'create', 'create profile', 'make a profile',
+    'manage', 'manage profile', 'manage profiles', 'manage profiles:',
+    'edit', 'edit profile', 'edit profiles',
+    'delete', 'delete profile', 'remove', 'remove profile',
+    'switch', 'switch profile', 'switch profiles',
+    'see all', 'see more', 'show all', 'show more', 'view all', 'load more',
+    'done', 'cancel', 'save', 'close', 'back', 'next', 'previous',
+    'sign in', 'sign out', 'signin', 'signout', 'login', 'logout',
+    'register', 'home', 'menu', 'help', 'support', 'contact',
+    'profiles', 'profile', 'account', 'settings',
+    'netflix', 'name', 'username', 'email',
+    # Roles/Labels
+    'admin', 'administrator', 'owner', 'master', 'primary', 'main',
+    'secondary', 'default', 'guest', 'user', 'member', 'host',
+    'moderator', 'mod', 'root', 'superuser', 'super admin', 'superadmin',
+    # Arabic
+    'اضافة', 'إضافة', 'اضافة بروفايل', 'إضافة بروفايل', 'اضف بروفايل',
+    'اضف', 'تعديل', 'حذف', 'رجوع', 'خروج', 'حسابي',
+    'ادارة الملفات', 'إدارة الملفات', 'الملف الشخصي',
+    'الكل', 'الرئيسية', 'مساعدة',
+}
 
 # ======================== دوال NFToken ========================
 async def create_nftoken_link(netflix_id):
@@ -129,13 +174,11 @@ def country_to_flag(code):
     return ""
 
 def format_date(value):
-    """إصلاح مشكلة التواريخ - بترجع التاريخ بصيغة واضحة"""
     if not value:
         return "Unknown"
-    
+
     value_str = str(value).strip()
-    
-    # لو التاريخ بصيغة ISO (YYYY-MM-DD)
+
     iso_match = re.match(r'^(\d{4})-(\d{2})-(\d{2})', value_str)
     if iso_match:
         try:
@@ -144,21 +187,18 @@ def format_date(value):
             return dt.strftime("%B %d, %Y")
         except:
             pass
-    
-    # لو التاريخ بصيغة Unix timestamp (milliseconds)
+
     if value_str.isdigit() and len(value_str) >= 10:
         try:
             ts = int(value_str)
-            if len(value_str) == 13:  # milliseconds
+            if len(value_str) == 13:
                 ts = ts / 1000
             dt = datetime.fromtimestamp(ts)
-            # لو التاريخ بعيد جداً، يبقى مش timestamp صح
             if 2000 <= dt.year <= 2100:
                 return dt.strftime("%B %d, %Y")
         except:
             pass
-    
-    # محاولات تنسيقات تانية
+
     for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d",
                 "%m/%d/%Y", "%d/%m/%Y", "%B %d, %Y", "%b %d, %Y"):
         try:
@@ -166,17 +206,15 @@ def format_date(value):
             return dt.strftime("%B %d, %Y")
         except:
             pass
-    
+
     return value_str
 
 def parse_member_since(value):
-    """إصلاح مشكلة Member Since"""
     if not value:
         return "Unknown"
-    
+
     value_str = str(value).strip()
-    
-    # أولاً: لو تاريخ ISO
+
     iso_match = re.match(r'^(\d{4})-(\d{2})-(\d{2})', value_str)
     if iso_match:
         try:
@@ -185,11 +223,10 @@ def parse_member_since(value):
             return dt.strftime("%B %Y")
         except:
             pass
-    
-    # ثانياً: محاولة استخراج الشهر والسنة من النص
+
     value_decoded = decode_value(value_str) or value_str
     value_lower = value_decoded.lower()
-    
+
     months_map = {
         'january': 'January', 'enero': 'January', 'janvier': 'January', 'janeiro': 'January',
         'february': 'February', 'febrero': 'February', 'fevrier': 'February', 'fevereiro': 'February',
@@ -204,27 +241,21 @@ def parse_member_since(value):
         'november': 'November', 'noviembre': 'November', 'novembre': 'November',
         'december': 'December', 'diciembre': 'December', 'decembre': 'December',
     }
-    
+
     for mon_key, mon_name in months_map.items():
         if mon_key in value_lower:
             year_match = re.search(r'(19|20)\d{2}', value_decoded)
             if year_match:
                 year = year_match.group()
-                # ✅ نتأكد إن السنة منطقية (مش 2026 اللي ممكن تكون غلط)
-                if 1997 <= int(year) <= 2025:
-                    return f"{mon_name} {year}"
-                else:
-                    return f"{mon_name} {year}"
+                return f"{mon_name} {year}"
             return mon_name
-    
-    # ثالثاً: أرقام
+
     numbers = re.findall(r'\d+', value_decoded)
     if len(numbers) >= 2:
-        # نجرب نلاقي سنة
         for num in numbers:
             if len(num) == 4 and 1997 <= int(num) <= 2025:
                 return f"Year {num}"
-    
+
     return value_decoded
 
 def format_member_since(value):
@@ -256,7 +287,6 @@ def extract_all_cookies_from_file(content):
     if not content or not content.strip():
         return accounts
 
-    # الطريقة 1: NetflixId
     pattern = r'NetflixId[=\t\s]+([^\s\n\t;]+)'
     all_matches = list(re.finditer(pattern, content))
 
@@ -280,7 +310,6 @@ def extract_all_cookies_from_file(content):
 
         accounts.append({"cookies": cookies, "raw": f"account_{len(accounts)+1}"})
 
-    # الطريقة 2: Netscape
     if not accounts:
         netscape_cookies = {}
         lines = content.split('\n')
@@ -303,7 +332,6 @@ def extract_all_cookies_from_file(content):
         if netscape_cookies.get('NetflixId'):
             accounts.append({"cookies": netscape_cookies, "raw": "netscape_format"})
 
-    # الطريقة 3: تقسيم
     if not accounts:
         parts = re.split(r'(?=NetflixId[=\t])', content)
 
@@ -403,22 +431,38 @@ def extract_payment_method(html_content):
 
 # ======================== دوال استخراج البروفايلات (محسّنة) ========================
 def _find_profile_names_in_json(obj, depth=0):
-    """دالة recursive للبحث عن أسماء البروفايلات جوه JSON"""
+    """
+    دالة recursive للبحث عن أسماء البروفايلات الحقيقية فقط
+    ✅ بتستبعد اللغات والـ UI عناصر
+    """
     names = []
-    if depth > 10:
+    if depth > 15:
         return names
     try:
         if isinstance(obj, dict):
             keys_lower = [str(k).lower() for k in obj.keys()]
-            is_profile_obj = any('profile' in k or 'avatar' in k for k in keys_lower)
-
-            if is_profile_obj:
-                for key in ['name', 'profileName', 'displayName']:
+            
+            # ✅ لازم يكون object بروفايل حقيقي
+            # لازم يكون فيه واحد من دول: profileId, profileGuid, avatar
+            # ولازم يكون فيه "name"
+            has_profile_id = any(k in keys_lower for k in ['profileid', 'profileguid', 'profile_id', 'profile_guid'])
+            has_avatar = any(k in keys_lower for k in ['avatar', 'avatarurl', 'avatar_url'])
+            has_profile_key = any(k in keys_lower for k in ['profilename', 'profile_name'])
+            
+            has_name = any(k in keys_lower for k in ['name', 'profilename', 'displayname', 'profile_name', 'display_name'])
+            
+            # ✅ لو ده object بروفايل حقيقي، ناخد الاسم
+            if (has_profile_id or has_avatar or has_profile_key) and has_name:
+                for key in ['name', 'profileName', 'displayName', 'profile_name', 'display_name']:
                     if key in obj and isinstance(obj[key], str):
-                        names.append(obj[key])
-
+                        val = obj[key].strip()
+                        if val and len(val) <= 40:
+                            names.append(val)
+            
+            # ✅ نكمل البحث في الـ nested
             for v in obj.values():
                 names.extend(_find_profile_names_in_json(v, depth + 1))
+                
         elif isinstance(obj, list):
             for item in obj:
                 names.extend(_find_profile_names_in_json(item, depth + 1))
@@ -436,41 +480,19 @@ async def extract_all_profiles_from_manage(session):
         name_clean = str(name).strip()
         name_lower = name_clean.lower()
         
-        # ✅ قائمة موسعة شاملة لأسماء UI والأدوار
-        forbidden_exact = {
-            # UI Elements
-            'add', 'add profile', 'add a profile', 'add new', 'addnew', 'add new profile',
-            'new', 'new profile', 'create', 'create profile', 'make a profile',
-            'manage', 'manage profile', 'manage profiles', 'manage profiles:',
-            'edit', 'edit profile', 'edit profiles',
-            'delete', 'delete profile', 'remove', 'remove profile',
-            'switch', 'switch profile', 'switch profiles',
-            'see all', 'see more', 'show all', 'show more', 'view all', 'load more',
-            'done', 'cancel', 'save', 'close', 'back', 'next', 'previous',
-            'sign in', 'sign out', 'signin', 'signout', 'login', 'logout',
-            'register', 'home', 'menu', 'help', 'support', 'contact',
-            'profiles', 'profile', 'account', 'settings',
-            'netflix', 'name', 'username', 'email',
-            # Roles/Labels
-            'admin', 'administrator', 'owner', 'master', 'primary', 'main',
-            'secondary', 'default', 'guest', 'user', 'member', 'host',
-            'moderator', 'mod', 'root', 'superuser', 'super admin', 'superadmin',
-            # Arabic
-            'اضافة', 'إضافة', 'اضافة بروفايل', 'إضافة بروفايل', 'اضف بروفايل',
-            'اضف', 'تعديل', 'حذف', 'رجوع', 'خروج', 'حسابي',
-            'ادارة الملفات', 'إدارة الملفات', 'الملف الشخصي',
-            'الكل', 'الرئيسية', 'مساعدة',
-        }
-        
-        # لو الاسم بالظبط في القائمة الممنوعة
-        if name_lower in forbidden_exact:
+        # ✅ 1. فلتر اللغات
+        if name_lower in LANGUAGES_BLACKLIST:
             return False
         
-        # لو الاسم فيه نقطتين في الآخر (زي "Manage Profiles:")
+        # ✅ 2. فلتر أسماء UI
+        if name_lower in UI_FORBIDDEN_EXACT:
+            return False
+        
+        # ✅ 3. لو فيه نقطتين في الآخر
         if name_clean.rstrip().endswith(':'):
             return False
         
-        # فلاتر أساسية
+        # ✅ 4. فلاتر أساسية
         if len(name_clean) < 1:
             return False
         if name_lower.startswith('http') or name_lower.startswith('www'):
@@ -480,7 +502,7 @@ async def extract_all_profiles_from_manage(session):
         if len(name_clean) > 40:
             return False
         
-        # ✅ فحص الكلمات الممنوعة كـ substring
+        # ✅ 5. فحص الكلمات الممنوعة كـ substring
         forbidden_substrings = [
             'manage profile', 'edit profile', 'add profile', 'create profile',
             'switch profile', 'delete profile', 'remove profile',
@@ -493,10 +515,10 @@ async def extract_all_profiles_from_manage(session):
             if forbidden in name_lower:
                 return False
         
-        # ✅ لو الاسم قصير (كلمتين أو أقل) وفيه كلمة UI
+        # ✅ 6. لو الاسم قصير وفيه كلمة UI
         words = name_lower.split()
         if len(words) <= 2:
-            ui_words = {'manage', 'profile', 'profiles', 'edit', 'add', 'delete', 
+            ui_words = {'manage', 'profile', 'profiles', 'edit', 'add', 'delete',
                        'remove', 'switch', 'see', 'show', 'view', 'all', 'more',
                        'admin', 'owner', 'master', 'primary', 'default', 'guest'}
             if any(w in ui_words for w in words):
@@ -512,7 +534,6 @@ async def extract_all_profiles_from_manage(session):
                     return page_profiles
                 html_content = await resp.text()
 
-            # لو الصفحة صفحة تسجيل دخول
             if "signin" in html_content.lower()[:2000] and "logout" not in html_content.lower():
                 return page_profiles
 
@@ -649,7 +670,7 @@ async def extract_all_profiles_from_manage(session):
                     if is_valid_profile(pname) and pname not in page_profiles:
                         page_profiles.append(pname)
 
-            # الطريقة 14: __NEXT_DATA__
+            # الطريقة 14: __NEXT_DATA__ (باستخدام الدالة المحسّنة)
             if not page_profiles:
                 next_data_match = re.search(r'<script[^>]*id="__NEXT_DATA__"[^>]*>(.*?)</script>', html_content, re.DOTALL)
                 if next_data_match:
@@ -663,7 +684,7 @@ async def extract_all_profiles_from_manage(session):
                     except:
                         pass
 
-            # الطريقة 15: netflix react context
+            # الطريقة 15: netflix react context (باستخدام الدالة المحسّنة)
             if not page_profiles:
                 react_match = re.search(r'netflix\.react\.context\s*=\s*(\{.*?\});', html_content, re.DOTALL)
                 if react_match:
@@ -1602,6 +1623,7 @@ def main():
     print("✅ Netflix Checker Bot is running...")
     print("✅ Async mode - /cancel responds INSTANTLY")
     print("✅ Enhanced profile extraction (15 methods)")
+    print("✅ Language filter active (no more languages as profiles)")
     print("✅ UI names filtered (Manage Profiles, Admin, etc.)")
     print("✅ Date formatting fixed")
     print("=" * 50)
