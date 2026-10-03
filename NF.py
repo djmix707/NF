@@ -1,4 +1,4 @@
-# NF.py - Netflix Cookies Checker Bot (Final v2)
+# NF.py - Netflix Cookies Checker Bot (Final Fixed Version)
 import os
 import re
 import json
@@ -230,72 +230,35 @@ UI_TRANSLATIONS_BLACKLIST = {
     'tapos na', 'i-save', 'isara', 'bumalik', 'susunod', 'nakaraan',
 }
 
-# ✅ علامات payment failure - بتدور عليها في كل الصفحات
+# ✅ علامات payment failure واضحة (بس الصيغ اللي Netflix فعلاً بيستخدمها)
 PAYMENT_FAILED_SIGNS = [
-    # English
-    'update your payment information',
+    'update your payment information to continue',
+    'we were unable to process your last payment',
     'unable to process your last payment',
+    'please update your payment information',
     'update payment method',
-    'we were unable to process',
-    'payment failed',
-    'payment declined',
     'there was a problem with your payment',
     'your payment was declined',
     'problem with your last payment',
-    'update your payment',
-    'past due',
+    'payment failed',
+    'payment declined',
     'your account is on hold',
-    'account on hold',
-    'on hold',
+    'account is on hold',
     'billing issue',
-    'problem with your billing',
     'fix payment issue',
     'update billing',
-    # Arabic
     'تحديث معلومات الدفع',
     'تعذر معالجة الدفعة',
     'فشل الدفع',
     'تم رفض الدفع',
     'حسابك معلق',
     'يرجى تحديث معلومات الدفع',
-    'مشكلة في الدفع',
-    # Spanish
     'actualiza tu información de pago',
     'no pudimos procesar tu último pago',
-    'actualizar método de pago',
-    # French
     'mettez à jour vos informations de paiement',
-    'mettre à jour le mode de paiement',
-    # Portuguese
     'atualize suas informações de pagamento',
-    'atualizar forma de pagamento',
-    # German
     'aktualisieren sie ihre zahlungsinformationen',
-    'zahlungsmethode aktualisieren',
-    # Italian
     'aggiorna le tue informazioni di pagamento',
-    'aggiorna metodo di pagamento',
-    # Japanese
-    'お支払い情報を更新してください',
-    '支払い方法を更新',
-    # Korean
-    '결제 정보를 업데이트하세요',
-    '결제 수단 업데이트',
-    # Chinese
-    '更新您的付款信息',
-    '更新付款方式',
-    # Hindi
-    'अपनी भुगतान जानकारी अपडेट करें',
-    # Turkish
-    'ödeme bilgilerinizi güncelleyin',
-    # Russian
-    'обновите платежную информацию',
-    # Indonesian
-    'perbarui informasi pembayaran anda',
-    # Thai
-    'อัปเดตข้อมูลการชำระเงิน',
-    # Vietnamese
-    'cập nhật thông tin thanh toán',
 ]
 
 # ======================== دوال NFToken ========================
@@ -510,9 +473,48 @@ def format_membership_status(status):
     else:
         return status.title()
 
-# ✅ كشف payment failed من أي صفحة
+# ✅ كشف صفحة تسجيل الدخول بشكل دقيق
+def is_login_page(html_content):
+    """بيكتشف لو الصفحة دي صفحة تسجيل دخول"""
+    if not html_content:
+        return True
+    
+    html_lower = html_content.lower()
+    first_chunk = html_lower[:5000]
+    
+    # ✅ علامات إيجابية إن دي صفحة YourAccount حقيقية
+    has_account_signs = (
+        'your account' in first_chunk or
+        'account details' in first_chunk or
+        'membership details' in first_chunk or
+        'manage membership' in first_chunk or
+        'logout' in html_lower or
+        'sign out' in html_lower or
+        'manageprofiles' in html_lower or
+        'account-overview' in html_lower or
+        'data-uia="account' in html_lower
+    )
+    
+    if has_account_signs:
+        return False
+    
+    # ✅ لو مفيش أي علامة على الحساب، نشوف لو فيها علامات login قوية
+    has_login_signs = (
+        'netflix - sign in' in html_lower[:500] or
+        'signin-form' in html_lower or
+        'login-form' in html_lower or
+        'id="signin"' in html_lower or
+        'name="password"' in first_chunk
+    )
+    
+    if has_login_signs and not has_account_signs:
+        return True
+    
+    return False
+
+# ✅ كشف payment failed
 def check_payment_failed(html_content):
-    """بيدور على علامات payment failed في أي صفحة"""
+    """بيدور على علامات payment failed في الصفحة"""
     if not html_content:
         return False
     
@@ -603,6 +605,11 @@ def extract_all_cookies_from_file(content):
 def extract_payment_method(html_content):
     payment_methods = []
 
+    # ✅ أولاً: البحث عن masked card
+    masked_card_match = re.search(r'[*•]{2,}\s*(\d{4})\b', html_content)
+    if masked_card_match:
+        return f"Card ending in {masked_card_match.group(1)}"
+
     payment_match = re.search(r'"paymentMethod"\s*:\s*"([^"]+)"', html_content)
     if payment_match:
         method = decode_value(payment_match.group(1))
@@ -615,18 +622,11 @@ def extract_payment_method(html_content):
         if method and method not in payment_methods:
             payment_methods.append(method)
 
-    masked_card_match = re.search(r'[*•]{3,}\s*(\d{4})', html_content)
-    if masked_card_match:
-        return f"Card ending in {masked_card_match.group(1)}"
-
     billing_patterns = [
-        r'<span[^>]*class="[^"]*payment[^"]*"[^>]*>([^<]+)</span>',
-        r'<div[^>]*class="[^"]*payment-method[^"]*"[^>]*>([^<]+)</div>',
         r'<div[^>]*data-uia="payment-method"[^>]*>([^<]+)</div>',
         r'<span[^>]*data-uia="payment-method-label"[^>]*>([^<]+)</span>',
         r'ending in[^\d]*(\d{4})',
-        r'(Visa|Mastercard|American Express|Amex|Discover|PayPal|Gift Card|Mobile Billing|Direct Debit|Prepaid Card|OVO)[^<]*',
-        r'Credit/Debit Card.*?ending in[^\d]*(\d{4})',
+        r'\b(Visa|Mastercard|American Express|Amex|Discover|PayPal|Gift Card|OVO)\b[^<]*',
     ]
 
     for pattern in billing_patterns:
@@ -647,7 +647,6 @@ def extract_payment_method(html_content):
     js_patterns = [
         r'paymentMethodDisplayName["\']?\s*:\s*["\']([^"\']+)',
         r'payment_info["\']?\s*:\s*{[^}]*method["\']?\s*:\s*["\']([^"\']+)',
-        r'billingInfo["\']?\s*:\s*{[^}]*paymentType["\']?\s*:\s*["\']([^"\']+)',
         r'currentPaymentMethod["\']?\s*:\s*["\']([^"\']+)',
     ]
 
@@ -659,17 +658,13 @@ def extract_payment_method(html_content):
                 payment_methods.append(method)
 
     known_methods = ['PayPal', 'Visa', 'Mastercard', 'American Express', 'Amex', 'Discover',
-                     'Gift Card', 'Mobile', 'Direct Debit', 'Prepaid', 'iTunes', 'Google Play',
-                     'Bank Transfer', 'Sofort', 'IDEAL', 'Giropay', 'OVO']
+                     'Gift Card', 'iTunes', 'Google Play', 'Bank Transfer', 'OVO',
+                     'Sofort', 'IDEAL', 'Giropay']
 
     for method in known_methods:
         if re.search(r'\b' + re.escape(method) + r'\b', html_content, re.IGNORECASE):
             if method not in payment_methods:
                 payment_methods.append(method)
-
-    last_four_match = re.search(r'(\d{4})[^\d]*$', html_content)
-    if last_four_match and not payment_methods:
-        payment_methods.append(f"Card ending in {last_four_match.group(1)}")
 
     for method in payment_methods:
         if method and len(method) > 1:
@@ -770,7 +765,6 @@ def is_valid_profile_name(name):
         'управление профил', 'управління профіл', 'upravljanje profil',
         'see all', 'show all', 'view all', 'load more',
         'sign in', 'sign out', 'log in', 'log out',
-        'administrator', 'super admin',
     ]
     
     for forbidden in forbidden_substrings:
@@ -796,15 +790,19 @@ def is_valid_profile_name(name):
 async def extract_profiles_from_page(session, url):
     """استخراج البروفايلات من صفحة معينة"""
     page_profiles = []
+    html_content = ""
+    
     try:
         async with session.get(url, allow_redirects=True) as resp:
             if resp.status != 200:
                 return page_profiles, ""
             html_content = await resp.text()
 
-        if "signin" in html_content.lower()[:2000] and "logout" not in html_content.lower():
+        # ✅ لو صفحة login نتجاهلها
+        if is_login_page(html_content):
             return page_profiles, html_content
 
+        # الطريقة 1: JSON "profiles" array
         profiles_match = re.search(r'"profiles"\s*:\s*\[(.*?)\](?=\s*[,\}])', html_content, re.DOTALL)
         if profiles_match:
             profiles_data = profiles_match.group(1)
@@ -815,12 +813,14 @@ async def extract_profiles_from_page(session, url):
                     if is_valid_profile_name(decoded) and decoded not in page_profiles:
                         page_profiles.append(decoded)
 
+        # الطريقة 2: "profileName"
         profile_matches = re.finditer(r'"profileName"\s*:\s*"([^"]+)"', html_content)
         for match in profile_matches:
             pname = clean_profile_name(match.group(1))
             if is_valid_profile_name(pname) and pname not in page_profiles:
                 page_profiles.append(pname)
 
+        # الطريقة 3: profiles array + name
         if not page_profiles:
             alt_matches = re.finditer(r'"profiles"\s*:\s*\[.*?"name"\s*:\s*"([^"]+)"', html_content, re.DOTALL)
             for match in alt_matches:
@@ -828,6 +828,7 @@ async def extract_profiles_from_page(session, url):
                 if is_valid_profile_name(pname) and pname not in page_profiles:
                     page_profiles.append(pname)
 
+        # الطريقة 4: class profile-name
         profile_classes = [
             r'<span[^>]*class="[^"]*profile-name[^"]*"[^>]*>([^<]+)</span>',
             r'<div[^>]*class="[^"]*profile-name[^"]*"[^>]*>([^<]+)</div>',
@@ -838,18 +839,18 @@ async def extract_profiles_from_page(session, url):
             r'<h1[^>]*class="[^"]*profile[^"]*"[^>]*>([^<]+)</h1>',
             r'<h2[^>]*class="[^"]*profile[^"]*"[^>]*>([^<]+)</h2>',
             r'<span[^>]*data-uia="profile-avatar-name"[^>]*>([^<]+)</span>',
-            r'<div[^>]*class="[^"]*profile-avatar[^"]*"[^>]*>.*?<span[^>]*>([^<]+)</span>',
             r'<p[^>]*class="[^"]*profile[^"]*name[^"]*"[^>]*>([^<]+)</p>',
             r'<span[^>]*class="[^"]*profileName[^"]*"[^>]*>([^<]+)</span>',
         ]
 
         for pattern in profile_classes:
-            matches = re.finditer(pattern, html_content, re.IGNORECASE | re.DOTALL)
+            matches = re.finditer(pattern, html_content, re.IGNORECASE)
             for match in matches:
                 pname = clean_profile_name(match.group(1))
                 if is_valid_profile_name(pname) and pname not in page_profiles:
                     page_profiles.append(pname)
 
+        # الطريقة 5: profileId + name
         if not page_profiles:
             alt_pattern = r'"profileId"\s*:\s*"[^"]+"\s*,\s*"name"\s*:\s*"([^"]+)"'
             matches = re.finditer(alt_pattern, html_content)
@@ -858,6 +859,7 @@ async def extract_profiles_from_page(session, url):
                 if is_valid_profile_name(pname) and pname not in page_profiles:
                     page_profiles.append(pname)
 
+        # الطريقة 6: profileGuid + name
         if not page_profiles:
             alt_pattern2 = r'"profileGuid"\s*:\s*"[^"]+"\s*,\s*"name"\s*:\s*"([^"]+)"'
             matches = re.finditer(alt_pattern2, html_content)
@@ -866,14 +868,7 @@ async def extract_profiles_from_page(session, url):
                 if is_valid_profile_name(pname) and pname not in page_profiles:
                     page_profiles.append(pname)
 
-        if not page_profiles:
-            alt_pattern3 = r'profile[^}]*?"name"\s*:\s*"([^"]+)"'
-            matches = re.finditer(alt_pattern3, html_content, re.IGNORECASE | re.DOTALL)
-            for match in matches:
-                pname = clean_profile_name(match.group(1))
-                if is_valid_profile_name(pname) and pname not in page_profiles:
-                    page_profiles.append(pname)
-
+        # الطريقة 7: alt + data-uia
         if not page_profiles:
             alt_pattern4 = r'alt="([^"]+)"[^>]*data-uia="profile'
             matches = re.finditer(alt_pattern4, html_content)
@@ -882,50 +877,9 @@ async def extract_profiles_from_page(session, url):
                 if is_valid_profile_name(pname) and pname not in page_profiles:
                     page_profiles.append(pname)
 
+        # الطريقة 8: __NEXT_DATA__ (بحد أقصى للحجم)
         if not page_profiles:
-            alt_pattern5 = r'<option[^>]*value="[^"]*"[^>]*>([^<]+)</option>'
-            matches = re.finditer(alt_pattern5, html_content, re.IGNORECASE)
-            for match in matches:
-                pname = clean_profile_name(match.group(1))
-                if is_valid_profile_name(pname) and pname not in page_profiles:
-                    page_profiles.append(pname)
-
-        if not page_profiles:
-            alt_pattern6 = r'aria-label="[^"]*Profile[^"]*:\s*([^"]+)"'
-            matches = re.finditer(alt_pattern6, html_content, re.IGNORECASE)
-            for match in matches:
-                pname = clean_profile_name(match.group(1))
-                if is_valid_profile_name(pname) and pname not in page_profiles:
-                    page_profiles.append(pname)
-
-        if not page_profiles:
-            script_matches = re.findall(r'<script[^>]*>(.*?)</script>', html_content, re.DOTALL)
-            for script in script_matches:
-                if 'profile' in script.lower():
-                    names = re.findall(r'"profileName"\s*:\s*"([^"]+)"', script)
-                    for n in names:
-                        pname = clean_profile_name(n)
-                        if is_valid_profile_name(pname) and pname not in page_profiles:
-                            page_profiles.append(pname)
-
-        if not page_profiles:
-            json_blocks = re.findall(r'\{[^{}]*"profile[^{}]*\}', html_content, re.IGNORECASE)
-            for block in json_blocks:
-                names = re.findall(r'"name"\s*:\s*"([^"]+)"', block)
-                for n in names:
-                    pname = clean_profile_name(n)
-                    if is_valid_profile_name(pname) and pname not in page_profiles:
-                        page_profiles.append(pname)
-
-        if not page_profiles:
-            data_names = re.findall(r'data-[a-z-]*name="([^"]+)"', html_content, re.IGNORECASE)
-            for n in data_names:
-                pname = clean_profile_name(n)
-                if is_valid_profile_name(pname) and pname not in page_profiles:
-                    page_profiles.append(pname)
-
-        if not page_profiles:
-            next_data_match = re.search(r'<script[^>]*id="__NEXT_DATA__"[^>]*>(.*?)</script>', html_content, re.DOTALL)
+            next_data_match = re.search(r'<script[^>]*id="__NEXT_DATA__"[^>]*>(.{0,500000}?)</script>', html_content, re.DOTALL)
             if next_data_match:
                 try:
                     next_data = json.loads(next_data_match.group(1))
@@ -937,8 +891,9 @@ async def extract_profiles_from_page(session, url):
                 except:
                     pass
 
+        # الطريقة 9: netflix.react.context (بحد أقصى للحجم)
         if not page_profiles:
-            react_match = re.search(r'netflix\.react\.context\s*=\s*(\{.*?\});', html_content, re.DOTALL)
+            react_match = re.search(r'netflix\.react\.context\s*=\s*(\{.{0,500000}?\});', html_content, re.DOTALL)
             if react_match:
                 try:
                     ctx = json.loads(react_match.group(1))
@@ -953,7 +908,7 @@ async def extract_profiles_from_page(session, url):
     except Exception as e:
         pass
 
-    return page_profiles, html_content if 'html_content' in dir() else ""
+    return page_profiles, html_content
 
 async def get_account_info(cookies):
     if not cookies or "NetflixId" not in cookies:
@@ -988,7 +943,8 @@ async def get_account_info(cookies):
                     return None, f"HTTP {resp.status}"
                 html_content = await resp.text()
 
-                if "logout" not in html_content.lower() and "signin" in html_content.lower():
+                # ✅ check دقيق لصفحة login
+                if is_login_page(html_content):
                     return None, "Not logged in - cookie expired"
 
                 info = {}
@@ -1015,10 +971,6 @@ async def get_account_info(cookies):
                         email = decode_value(email_match.group(1))
                 if not email:
                     email_match = re.search(r'"emailAddress"\s*:\s*"([^"]+)"', html_content)
-                    if email_match:
-                        email = decode_value(email_match.group(1))
-                if not email:
-                    email_match = re.search(r'<span[^>]*class="[^"]*email[^"]*"[^>]*>([^<]+)</span>', html_content, re.IGNORECASE)
                     if email_match:
                         email = decode_value(email_match.group(1))
                 info["email"] = email
@@ -1092,23 +1044,15 @@ async def get_account_info(cookies):
                     info["status"] = "Active"
 
             # ============ 2. صفحة البروفايلات ============
-            profiles = await extract_profiles_from_page(session, "https://www.netflix.com/ManageProfiles")
+            profiles, profiles_html = await extract_profiles_from_page(session, "https://www.netflix.com/ManageProfiles")
             
             if not profiles:
-                profiles, profiles_html = await extract_profiles_from_page(session, "https://www.netflix.com/account/profiles")
-                # ✅ نشيك على payment failed في صفحة البروفايلات كمان
-                if profiles_html and check_payment_failed(profiles_html):
+                profiles, profiles_html2 = await extract_profiles_from_page(session, "https://www.netflix.com/account/profiles")
+                if profiles_html2 and check_payment_failed(profiles_html2):
                     payment_failed = True
             else:
-                # نجيب html صفحة ManageProfiles عشان نشيك
-                try:
-                    async with session.get("https://www.netflix.com/ManageProfiles", allow_redirects=True) as p_resp:
-                        if p_resp.status == 200:
-                            p_html = await p_resp.text()
-                            if check_payment_failed(p_html):
-                                payment_failed = True
-                except:
-                    pass
+                if profiles_html and check_payment_failed(profiles_html):
+                    payment_failed = True
 
             # ============ 3. صفحة الدفع ============
             if not payment_failed:
@@ -1166,13 +1110,25 @@ def determine_plan(info):
 
     is_subscribed = False
 
+    # ✅ 1. status active أو hold
     if "active" in status or "current_member" in status:
         is_subscribed = True
     elif "hold" in status:
         is_subscribed = True
+    # ✅ 2. plan name
     elif "premium" in plan_name or "standard" in plan_name or "basic" in plan_name or "mobile" in plan_name:
         is_subscribed = True
+    # ✅ 3. streams > 0
     elif streams and streams.isdigit() and int(streams) > 0:
+        is_subscribed = True
+    # ✅ 4. دلائل على حساب مدفوع (fallback)
+    elif info.get("email") and info.get("name"):
+        is_subscribed = True
+    elif info.get("phone"):
+        is_subscribed = True
+    elif info.get("payment"):
+        is_subscribed = True
+    elif info.get("memberSince"):
         is_subscribed = True
 
     if not is_subscribed:
@@ -1920,6 +1876,8 @@ def main():
     print("✅ Language & UI filter active")
     print("✅ HTML entities decoded")
     print("✅ Payment detection across 4 pages")
+    print("✅ Fixed: 'signin' false positive bug")
+    print("✅ Fixed: determine_plan fallback for valid accounts")
     print("=" * 50)
 
     app.run_polling(allowed_updates=Update.ALL_TYPES)
